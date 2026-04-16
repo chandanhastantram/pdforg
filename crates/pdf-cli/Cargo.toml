@@ -1,0 +1,23 @@
+[package]
+name = "pdf-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "pdf"
+path = "src/main.rs"
+
+[dependencies]
+pdf-core    = { path = "../pdf-core" }
+pdf-formats = { path = "../pdf-formats" }
+pdf-pdf     = { path = "../pdf-pdf" }
+pdf-spell   = { path = "../pdf-spell" }
+pdf-storage = { path = "../pdf-storage" }
+pdf-server  = { path = "../pdf-server" }
+
+clap        = { version = "4", features = ["derive"] }
+tokio       = { version = "1", features = ["full"] }
+anyhow      = "1"
+open        = "5"
+tracing     = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

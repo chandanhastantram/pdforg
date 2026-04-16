@@ -1,0 +1,24 @@
+[package]
+name = "pdf-server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pdf-core    = { path = "../pdf-core" }
+pdf-writer  = { path = "../pdf-writer" }
+pdf-sheets  = { path = "../pdf-sheets" }
+pdf-slides  = { path = "../pdf-slides" }
+pdf-pdf     = { path = "../pdf-pdf" }
+pdf-formats = { path = "../pdf-formats" }
+pdf-spell   = { path = "../pdf-spell" }
+pdf-render  = { path = "../pdf-render" }
+pdf-storage = { path = "../pdf-storage" }
+
+axum        = { version = "0.7", features = ["ws", "multipart"] }
+tokio       = { version = "1", features = ["full"] }
+tower-http  = { version = "0.5", features = ["cors", "fs"] }
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+uuid        = { version = "1", features = ["v4"] }
+futures     = "0.3"
+tracing     = "0.1"
