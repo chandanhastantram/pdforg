@@ -24,7 +24,7 @@ pub fn parse_odt(bytes: &[u8]) -> Result<Document, FormatError> {
 
 fn parse_odt_content(xml: &str) -> Result<Vec<Block>, FormatError> {
     let mut reader = Reader::from_str(xml);
-    reader.trim_text(true);
+    reader.config_mut().trim_text(true);
     let mut blocks = vec![];
     let mut current_para: Option<Paragraph> = None;
     let mut current_run: Option<Run> = None;

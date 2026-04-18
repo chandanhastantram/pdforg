@@ -5,7 +5,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use pdf_core::{Document, Paragraph, Run, Block};
 
 /// Attribute map for styled text
 pub type Attrs = HashMap<String, serde_json::Value>;

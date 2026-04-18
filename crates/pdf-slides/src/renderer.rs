@@ -64,7 +64,7 @@ impl SvgRenderer {
                 )
             }
             Background::Theme(_) => {
-                format!(r#"<rect width="{}" height="{}" fill="#FFFFFF"/>"#, self.width, self.height)
+                format!("<rect width=\"{}\" height=\"{}\" fill=\"#FFFFFF\"/>", self.width, self.height)
             }
         }
     }

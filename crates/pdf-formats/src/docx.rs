@@ -39,7 +39,7 @@ fn read_zip_entry<R: Read + Seek>(archive: &mut ZipArchive<R>, name: &str) -> Re
 
 fn parse_document_xml(xml: &str) -> Result<Vec<Block>, FormatError> {
     let mut reader = Reader::from_str(xml);
-    reader.trim_text(true);
+    reader.config_mut().trim_text(true);
 
     let mut blocks = vec![];
     let mut current_para: Option<Paragraph> = None;
@@ -177,7 +177,7 @@ pub fn write_docx(doc: &Document) -> Result<Vec<u8>, FormatError> {
     let buf = Vec::new();
     let mut cursor = Cursor::new(buf);
     let mut zip = ZipWriter::new(&mut cursor);
-    let options = FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let options = FileOptions::<'_, ()>::default().compression_method(zip::CompressionMethod::Deflated);
 
     // [Content_Types].xml
     zip.start_file("[Content_Types].xml", options)?;
@@ -201,7 +201,6 @@ pub fn write_docx(doc: &Document) -> Result<Vec<u8>, FormatError> {
     zip.write_all(DEFAULT_STYLES_XML.as_bytes())?;
 
     zip.finish()?;
-    drop(zip);
     Ok(cursor.into_inner())
 }
 

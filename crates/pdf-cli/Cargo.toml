@@ -2,6 +2,10 @@
 name = "pdf-cli"
 version = "0.1.0"
 edition = "2021"
+description = "PDF Office — local-first, privacy-respecting office suite built in Rust"
+license = "MIT"
+readme = "../../README.md"
+default-run = "pdf"
 
 [[bin]]
 name = "pdf"

@@ -142,9 +142,8 @@ pub struct RedactRegion {
 pub fn redact(input: &[u8], _regions: &[RedactRegion]) -> Result<Vec<u8>, PdfError> {
     // Phase 1 stub — full implementation in Phase 2
     let doc = Document::load_mem(input)?;
-    let mut buf = Vec::new();
-    let doc2 = doc;
-    let mut buf2 = Vec::new();
+    let mut doc2 = doc;
+    let mut buf2: Vec<u8> = Vec::new();
     doc2.save_to(&mut buf2)?;
     Ok(buf2)
 }

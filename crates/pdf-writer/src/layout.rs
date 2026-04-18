@@ -69,7 +69,7 @@ impl LayoutEngine {
         let margin_l = self.mm_to_px(self.page_layout.margin_left);
         let margin_r = self.mm_to_px(self.page_layout.margin_right);
         let content_w = page_w - margin_l - margin_r;
-        let content_h = page_h - margin_t - margin_b;
+        let _content_h = page_h - margin_t - margin_b;
 
         let mut pages = vec![];
         let mut current_page = LayoutPage::new(1, page_w, page_h);
@@ -95,7 +95,7 @@ impl LayoutEngine {
         &self,
         block: &pdf_core::Block,
         x: f32,
-        y: f32,
+        _y: f32,
         width: f32,
         cursor_y: &mut f32,
     ) -> Vec<LayoutBox> {
@@ -144,7 +144,7 @@ impl LayoutEngine {
     ) -> Vec<LayoutBox> {
         let line_height = 20.0; // default 20px line height
         let mut children = vec![];
-        let mut line_x = x;
+        let line_x = x;
 
         // Render all runs as glyph runs
         for run in &para.runs {

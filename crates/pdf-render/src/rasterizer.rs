@@ -63,7 +63,7 @@ pub fn rasterize_page(page: &LayoutPage, scale: f32) -> Option<tiny_skia::Pixmap
     let mut pixmap = Pixmap::new(w, h)?;
 
     // White background
-    pixmap.fill(Color::from_rgba8(255, 255, 255, 255).into());
+    pixmap.fill(tiny_skia::Color::from_rgba8(255, 255, 255, 255));
 
     let mut paint = Paint::default();
     paint.set_color_rgba8(0, 0, 0, 255);

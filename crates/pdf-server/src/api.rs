@@ -34,7 +34,7 @@ impl From<pdf_storage::StorageError> for ApiError {
 // ─── Document endpoints ───────────────────────────────────────────────────────
 
 pub async fn list_documents(State(state): State<SharedState>) -> ApiResult<serde_json::Value> {
-    let store = state.store.read().await;
+    let store = state.store.lock().await;
     let docs = store.list_recent(50).map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({ "documents": docs })))
 }
@@ -43,7 +43,7 @@ pub async fn create_document(State(state): State<SharedState>) -> ApiResult<serd
     let doc = Document::default();
     let id = doc.id;
     let title = doc.title.clone();
-    let mut store = state.store.write().await;
+    let mut store = state.store.lock().await;
     store.save_document(&doc).map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({ "id": id, "title": title })))
 }
@@ -52,7 +52,7 @@ pub async fn get_document(
     State(state): State<SharedState>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Document> {
-    let store = state.store.read().await;
+    let store = state.store.lock().await;
     let doc = store.load_document(id).map_err(ApiError::from)?;
     Ok(Json(doc))
 }
@@ -64,7 +64,7 @@ pub async fn save_document(
 ) -> ApiResult<serde_json::Value> {
     doc.id = id;
     doc.revision += 1;
-    let mut store = state.store.write().await;
+    let mut store = state.store.lock().await;
     store.save_document(&doc).map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({ "ok": true, "revision": doc.revision })))
 }
@@ -73,7 +73,7 @@ pub async fn delete_document(
     State(state): State<SharedState>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<serde_json::Value> {
-    let store = state.store.read().await;
+    let mut store = state.store.lock().await;  // needs write lock — deletes rows
     store.delete_document(id).map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -83,7 +83,7 @@ pub async fn export_document(
     Path(id): Path<Uuid>,
     Json(params): Json<ExportParams>,
 ) -> impl IntoResponse {
-    let store = state.store.read().await;
+    let store = state.store.lock().await;
     let doc = match store.load_document(id) {
         Ok(d) => d,
         Err(e) => return (StatusCode::NOT_FOUND, e.to_string()).into_response(),
@@ -112,8 +112,8 @@ pub async fn export_document(
                 Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
             }
         }
-        "pdf" => {
-            // Build the pdf archive while the store lock is still held
+        "pdfo" => {
+            // Build the .pdfo archive (ZIP + JSON) while the store lock is still held
             match store.export_pdfo(&doc) {
                 Ok(bytes) => (
                     StatusCode::OK,
@@ -137,7 +137,7 @@ pub async fn export_document(
                 Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
             }
         }
-        _ => (StatusCode::BAD_REQUEST, "Unsupported format. Supported: docx, pdf, pdf, xlsx").into_response(),
+        _ => (StatusCode::BAD_REQUEST, "Unsupported format. Supported: docx, pdf, pdfo, xlsx").into_response(),
     }
 }
 
@@ -152,7 +152,7 @@ pub async fn list_versions(
     State(state): State<SharedState>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<serde_json::Value> {
-    let store = state.store.read().await;
+    let store = state.store.lock().await;
     let versions = store.list_versions(id).map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({ "versions": versions })))
 }
@@ -161,7 +161,7 @@ pub async fn get_version(
     State(state): State<SharedState>,
     Path((_doc_id, version_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<serde_json::Value> {
-    let store = state.store.read().await;
+    let store = state.store.lock().await;
     let snapshot = store.load_version(version_id).map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({
         "id": snapshot.id,
@@ -172,13 +172,35 @@ pub async fn get_version(
     })))
 }
 
+pub async fn restore_version(
+    State(state): State<SharedState>,
+    Path((doc_id, version_id)): Path<(Uuid, Uuid)>,
+) -> ApiResult<serde_json::Value> {
+    // Load the historical snapshot
+    let snapshot = {
+        let store = state.store.lock().await;
+        store.load_version(version_id).map_err(ApiError::from)?
+    };
+    // Overwrite current document with the snapshot's content
+    let mut restored_doc = snapshot.document;
+    restored_doc.id = doc_id;
+    restored_doc.revision += 1;
+    let mut store = state.store.lock().await;
+    store.save_document(&restored_doc).map_err(ApiError::from)?;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "restored_from_version": version_id,
+        "new_revision": restored_doc.revision,
+    })))
+}
+
 // ─── Comment endpoints ────────────────────────────────────────────────────────
 
 pub async fn list_comments(
     State(state): State<SharedState>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Vec<Comment>> {
-    let store = state.store.read().await;
+    let store = state.store.lock().await;
     let comments = store.list_comments(id).map_err(ApiError::from)?;
     Ok(Json(comments))
 }
@@ -188,7 +210,7 @@ pub async fn add_comment(
     Path(id): Path<Uuid>,
     Json(comment): Json<Comment>,
 ) -> ApiResult<serde_json::Value> {
-    let mut store = state.store.write().await;
+    let mut store = state.store.lock().await;
     store.save_comment(id, &comment).map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -199,7 +221,7 @@ pub async fn get_preference(
     State(state): State<SharedState>,
     Path(key): Path<String>,
 ) -> ApiResult<serde_json::Value> {
-    let store = state.store.read().await;
+    let store = state.store.lock().await;
     let value: Option<serde_json::Value> = store.get_pref(&key).map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({ "key": key, "value": value })))
 }
@@ -214,7 +236,7 @@ pub async fn set_preference(
     Path(key): Path<String>,
     Json(body): Json<PrefBody>,
 ) -> ApiResult<serde_json::Value> {
-    let mut store = state.store.write().await;
+    let mut store = state.store.lock().await;
     store.set_pref(&key, &body.value).map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }

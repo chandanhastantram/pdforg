@@ -9,21 +9,21 @@ pub mod assets;
 use axum::{Router, routing::{get, post, put, delete}};
 use tower_http::cors::CorsLayer;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::Mutex;
 use pdf_storage::Store;
 
 pub use protocol::*;
 
 /// Shared application state
-#[derive(Debug)]
+
 pub struct AppState {
-    pub store: RwLock<Store>,
+    pub store: Mutex<Store>,
     pub data_dir: std::path::PathBuf,
 }
 
 impl AppState {
     pub fn new(store: Store, data_dir: std::path::PathBuf) -> Self {
-        AppState { store: RwLock::new(store), data_dir }
+        AppState { store: Mutex::new(store), data_dir }
     }
 }
 
@@ -62,6 +62,7 @@ pub fn build_router(state: SharedState) -> Router {
         // Versions
         .route("/api/documents/:id/versions", get(api::list_versions))
         .route("/api/documents/:id/versions/:vid", get(api::get_version))
+        .route("/api/documents/:id/versions/:vid/restore", post(api::restore_version))
 
         // Comments
         .route("/api/documents/:id/comments", get(api::list_comments))

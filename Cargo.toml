@@ -18,9 +18,14 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-authors = ["PDF Office Team"]
+authors = ["PDF Office Team <support@pdf-office.local>"]
 license = "MIT"
+description = "PDF Office — local-first, privacy-respecting office suite built in Rust"
 repository = "https://github.com/pdf-local/pdf"
+homepage = "https://github.com/pdf-local/pdf"
+keywords = ["office", "pdf", "writer", "spreadsheet", "presentation"]
+categories = ["command-line-utilities", "text-editors"]
+readme = "README.md"
 
 [workspace.dependencies]
 # Serialization
@@ -34,7 +39,7 @@ tokio = { version = "1", features = ["full"] }
 axum = { version = "0.7", features = ["ws", "multipart"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["fs", "cors", "trace"] }
-tokio-tungstenite = "0.21"
+tokio-tungstenite = "0.24"
 
 # CLI
 clap = { version = "4", features = ["derive"] }

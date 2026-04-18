@@ -235,7 +235,7 @@ impl Store {
 
         let document: Document = serde_json::from_str(&content)?;
         let created_at = chrono::DateTime::parse_from_rfc3339(&at_str)
-            .map_err(|e| StorageError::Json(serde_json::Error::custom(e.to_string())))?
+            .map_err(|e| StorageError::NotFound(e.to_string()))?
             .with_timezone(&chrono::Utc);
 
         Ok(DocumentSnapshot {
@@ -318,7 +318,7 @@ impl Store {
         let buf = Vec::new();
         let mut cursor = Cursor::new(buf);
         let mut zip = ZipWriter::new(&mut cursor);
-        let opts = FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let opts = FileOptions::<'_, ()>::default().compression_method(zip::CompressionMethod::Deflated);
 
         // content.json
         zip.start_file("content.json", opts).map_err(|e| StorageError::Zip(e.to_string()))?;
@@ -335,7 +335,6 @@ impl Store {
         zip.write_all(meta.to_string().as_bytes())?;
 
         zip.finish().map_err(|e| StorageError::Zip(e.to_string()))?;
-        drop(zip);
         Ok(cursor.into_inner())
     }
 

@@ -57,7 +57,7 @@ fn read_zip_str<R: Read + Seek>(archive: &mut ZipArchive<R>, name: &str) -> Opti
 fn parse_shared_strings(xml: &str) -> Vec<String> {
     if xml.is_empty() { return vec![]; }
     let mut reader = Reader::from_str(xml);
-    reader.trim_text(true);
+    reader.config_mut().trim_text(true);
     let mut strings = vec![];
     let mut current = String::new();
     let mut in_t = false;
@@ -85,7 +85,7 @@ fn parse_shared_strings(xml: &str) -> Vec<String> {
 fn parse_sheet_names(xml: &str) -> Vec<String> {
     if xml.is_empty() { return vec!["Sheet1".into()]; }
     let mut reader = Reader::from_str(xml);
-    reader.trim_text(true);
+    reader.config_mut().trim_text(true);
     let mut names = vec![];
     let mut buf = Vec::new();
 
@@ -110,7 +110,7 @@ fn parse_sheet_names(xml: &str) -> Vec<String> {
 fn parse_sheet_xml(xml: &str, name: &str, shared_strings: &[String]) -> Result<Sheet, FormatError> {
     let mut sheet = Sheet::new(name);
     let mut reader = Reader::from_str(xml);
-    reader.trim_text(true);
+    reader.config_mut().trim_text(true);
     let mut buf = Vec::new();
     let mut current_cell_ref = String::new();
     let mut current_cell_type = String::new();
@@ -202,7 +202,7 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>, FormatError> {
     let buf = Vec::new();
     let mut cursor = Cursor::new(buf);
     let mut zip = ZipWriter::new(&mut cursor);
-    let opts = FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let opts = FileOptions::<'_, ()>::default().compression_method(zip::CompressionMethod::Deflated);
 
     zip.start_file("[Content_Types].xml", opts)?;
     zip.write_all(XLSX_CONTENT_TYPES.as_bytes())?;
@@ -255,7 +255,6 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>, FormatError> {
     }
 
     zip.finish()?;
-    drop(zip);
     Ok(cursor.into_inner())
 }
 

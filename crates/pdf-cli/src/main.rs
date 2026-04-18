@@ -132,7 +132,7 @@ async fn main() -> Result<()> {
             cmd_convert(&input, &output)
         }
         Some(Command::Export { file, format, output }) => {
-            cmd_export(&file, format, output.as_deref())
+            cmd_export(&file, format, output.as_ref())
         }
         Some(Command::Spell { file, lang }) => {
             cmd_spell(&file, &lang)

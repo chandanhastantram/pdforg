@@ -35,7 +35,7 @@ async fn handle_socket(socket: WebSocket, doc_id: Uuid, state: SharedState) {
 
     // Send initial document state to the connecting client
     {
-        let store = state.store.read().await;
+        let store = state.store.lock().await;
         if let Ok(doc) = store.load_document(doc_id) {
             let init_msg = ServerMsg::DocumentState {
                 doc_id,
@@ -89,7 +89,7 @@ async fn handle_message(msg: ClientMsg, state: &SharedState) -> Option<ServerMsg
 
         ClientMsg::ApplyOp { doc_id, ops, rev } => {
             // Load document, apply ops, save
-            let mut store = state.store.write().await;
+            let mut store = state.store.lock().await;
             if let Ok(mut doc) = store.load_document(doc_id) {
                 // Apply each op to the document's text content
                 // (Phase 1: apply to first paragraph's first run)
@@ -144,7 +144,7 @@ async fn handle_message(msg: ClientMsg, state: &SharedState) -> Option<ServerMsg
         }
 
         ClientMsg::RequestPage { doc_id, page, scale: _ } => {
-            let store = state.store.read().await;
+            let store = state.store.lock().await;
             if let Ok(doc) = store.load_document(doc_id) {
                 drop(store);
                 let layout_engine = pdf_writer::layout::LayoutEngine::new(doc.page_layout.clone());

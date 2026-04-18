@@ -50,7 +50,7 @@ fn count_slides<R: Read + Seek>(archive: &ZipArchive<R>) -> usize {
 fn parse_slide_xml(xml: &str) -> Result<Slide, FormatError> {
     let mut slide = Slide::default();
     let mut reader = Reader::from_str(xml);
-    reader.trim_text(true);
+    reader.config_mut().trim_text(true);
     let mut buf = Vec::new();
     let mut in_sp = false;
     let mut current_tb: Option<TextBoxEl> = None;
@@ -146,7 +146,7 @@ pub fn write_pptx(pres: &Presentation) -> Result<Vec<u8>, FormatError> {
     let buf = Vec::new();
     let mut cursor = Cursor::new(buf);
     let mut zip = ZipWriter::new(&mut cursor);
-    let opts = FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let opts = FileOptions::<'_, ()>::default().compression_method(zip::CompressionMethod::Deflated);
 
     zip.start_file("[Content_Types].xml", opts)?;
     zip.write_all(build_pptx_content_types(pres.slides.len()).as_bytes())?;
@@ -183,7 +183,6 @@ pub fn write_pptx(pres: &Presentation) -> Result<Vec<u8>, FormatError> {
     }
 
     zip.finish()?;
-    drop(zip);
     Ok(cursor.into_inner())
 }
 

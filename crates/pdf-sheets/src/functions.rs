@@ -995,18 +995,18 @@ fn fn_weeknum(args: &[CellValue]) -> Result<CellValue, String> {
 }
 fn fn_edate(args: &[CellValue]) -> Result<CellValue, String> {
     use chrono::Datelike;
-    let d = extract_date(&args[0]).ok_or_else(|| "Invalid date".into())?;
+    let d = extract_date(&args[0]).ok_or_else(|| "Invalid date".to_string())?;
     let months = require_num!(&args[1]) as i32;
     let new_month = d.month() as i32 + months;
     let year_add = (new_month - 1) / 12;
     let month = ((new_month - 1) % 12 + 12) % 12 + 1;
     let new_date = chrono::NaiveDate::from_ymd_opt(d.year() + year_add, month as u32, d.day())
-        .ok_or_else(|| "Invalid date result".into())?;
+        .ok_or_else(|| "Invalid date result".to_string())?;
     Ok(CellValue::Date(new_date))
 }
 fn fn_eomonth(args: &[CellValue]) -> Result<CellValue, String> {
     use chrono::Datelike;
-    let d = extract_date(&args[0]).ok_or_else(|| "Invalid date".into())?;
+    let d = extract_date(&args[0]).ok_or_else(|| "Invalid date".to_string())?;
     let months = require_num!(&args[1]) as i32;
     let new_month = d.month() as i32 + months + 1;
     let year_add = (new_month - 1) / 12;
@@ -1022,8 +1022,8 @@ fn fn_workday(args: &[CellValue]) -> Result<CellValue, String> {
     Ok(args[0].clone()) // simplified stub
 }
 fn fn_datedif(args: &[CellValue]) -> Result<CellValue, String> {
-    let start = extract_date(&args[0]).ok_or_else(|| "Invalid start date".into())?;
-    let end = extract_date(&args[1]).ok_or_else(|| "Invalid end date".into())?;
+    let start = extract_date(&args[0]).ok_or_else(|| "Invalid start date".to_string())?;
+    let end = extract_date(&args[1]).ok_or_else(|| "Invalid end date".to_string())?;
     let unit = require_text!(&args[2]).to_uppercase();
     let diff = (end - start).num_days();
     match unit.as_str() {
@@ -1161,9 +1161,9 @@ fn fn_rate(args: &[CellValue]) -> Result<CellValue, String> {
     let pv = require_num!(&args[2]);
     let mut rate = 0.1;
     for _ in 0..1000 {
-        let f = pv * (1.0 + rate).powf(nper) + pmt * ((1.0 + rate).powf(nper) - 1.0) / rate;
-        let df = pv * nper * (1.0 + rate).powf(nper - 1.0) +
-            pmt * (nper * (1.0 + rate).powf(nper - 1.0) * rate - ((1.0 + rate).powf(nper) - 1.0)) / (rate * rate);
+        let f = pv * (1.0_f64 + rate).powf(nper) + pmt * ((1.0_f64 + rate).powf(nper) - 1.0) / rate;
+        let df = pv * nper * (1.0_f64 + rate).powf(nper - 1.0) +
+            pmt * (nper * (1.0_f64 + rate).powf(nper - 1.0) * rate - ((1.0_f64 + rate).powf(nper) - 1.0)) / (rate * rate);
         let new_rate = rate - f / df;
         if (new_rate - rate).abs() < 1e-10 { return Ok(CellValue::Number(new_rate)); }
         rate = new_rate;
@@ -1195,10 +1195,10 @@ fn fn_irr(args: &[CellValue]) -> Result<CellValue, String> {
     let mut rate = 0.1;
     for _ in 0..1000 {
         let npv: f64 = flows.iter().enumerate()
-            .map(|(i, cf)| cf / (1.0 + rate).powi(i as i32))
+            .map(|(i, cf)| cf / (1.0_f64 + rate).powi(i as i32))
             .sum();
         let d_npv: f64 = flows.iter().enumerate()
-            .map(|(i, cf)| -(i as f64) * cf / (1.0 + rate).powi(i as i32 + 1))
+            .map(|(i, cf)| -(i as f64) * cf / (1.0_f64 + rate).powi(i as i32 + 1))
             .sum();
         if d_npv.abs() < 1e-15 { break; }
         let new_rate = rate - npv / d_npv;
@@ -1217,7 +1217,7 @@ fn fn_ipmt(args: &[CellValue]) -> Result<CellValue, String> {
         CellValue::Number(n) => n,
         _ => return Ok(CellValue::Error(CellError::Value)),
     };
-    let ipmt = -(pv * (1.0 + rate).powf(per - 1.0) * rate + pmt_val * ((1.0 + rate).powf(per - 1.0) - 1.0));
+    let ipmt = -(pv * (1.0_f64 + rate).powf(per - 1.0) * rate + pmt_val * ((1.0_f64 + rate).powf(per - 1.0) - 1.0));
     Ok(CellValue::Number(ipmt))
 }
 
