@@ -1,40 +1,42 @@
-# 📄 PDF Office
+# 📄 PDF Office (`pdforg`)
 
 > **Local-first, private, Rust-native office suite — no cloud, no subscriptions, no telemetry.**
 
-PDF Office is an all-in-one office application that includes a word processor (Writer), spreadsheet editor (Sheets), presentation maker (Slides), and PDF tools — all running completely on your own computer.
+PDF Office is an all-in-one office application that includes a word processor (Writer), spreadsheet editor (Sheets), presentation maker (Slides), and PDF tools — all running completely on your own computer. 
+
+Available globally on crates.io as `pdforg`.
 
 ---
 
 ## 🚀 Quick Start
 
-### Option 1 — Run from Source (Recommended)
+### Method 1 — Install Globally via Crates.io (Recommended)
 
-**Requirements:** Rust + MSVC Build Tools installed
+**Requirements:** Rust + MSVC Build Tools (Windows) / build-essential (Linux/Mac).
+
+You can easily install PDF Office directly from the central Rust package registry. Once installed, you can launch the app from anywhere.
 
 ```powershell
-# 1. Open the project folder in a terminal
-cd "c:\Users\chand\.gemini\pdf office"
+# 1. Install via cargo
+cargo install pdforg
+
+# 2. Launch the application!
+pdf
+```
+Your browser will automatically open at `http://localhost:3847` to show the application UI.
+
+### Method 2 — Run from Source
+
+```powershell
+# 1. Clone the repository
+git clone https://github.com/chandanhastantram/pdforg.git
+cd pdforg
 
 # 2. Run the app
 cargo run --bin pdf
-
-# 3. Your browser will automatically open at http://localhost:3847
 ```
 
-### Option 2 — Install Globally with Cargo
-
-After this, you can type `pdf` from **anywhere** in your terminal — just like a normal installed app:
-
-```powershell
-# From the project folder:
-cargo install --path . --bin pdf
-
-# Now from ANY folder, just type:
-pdf
-```
-
-### Option 3 — Build Release Binary (Fastest to run)
+### Method 3 — Build a Release Binary
 
 ```powershell
 cargo build --release --bin pdf
@@ -45,312 +47,105 @@ cargo build --release --bin pdf
 
 ---
 
-## 📦 Share With Friends (No GitHub Required)
+## 📦 Share With Friends (No Tech Skills Required)
 
-### Method 1: Share the .exe File (Easiest — Friend needs nothing installed)
+### Method 1: Share the `.exe` File (Easiest)
 
-```powershell
-# Build the release binary
-cargo build --release --bin pdf
+1. Build the release binary (`cargo build --release --bin pdf`)
+2. Share the generated `pdf.exe` file with your friend.
+3. They simply double-click it. Nothing else to install, no setup required!
 
-# Share this file with your friend:
-#   target\release\pdf.exe
-# They just double-click it — no setup needed!
-```
+### Method 2: Share a Single Document (`.pdfo`)
 
-### Method 2: Share the Source Code
+1. Open a document in Writer.
+2. Click the **"📤 Share"** button in the toolbar.
+3. Send the `document.pdfo` file to your friend.
+4. Your friend opens PDF Office and drags the `.pdfo` file onto the home screen.
+5. The document appears instantly — no account needed!
 
-1. Zip the project folder (skip the `target\` folder — it's huge)
-2. Send the zip to your friend
-3. Friend installs Rust from https://rustup.rs
-4. Friend runs:
-   ```powershell
-   cargo install --path . --bin pdf
-   # Then just type:
-   pdf
-   ```
+### Method 3: Share via Local Network (LAN)
 
-### Method 3: Share a Single Document (.pdfo)
-
-1. Open your document in Writer
-2. Click **"📤 Share"** button in the toolbar
-3. Send the `document.pdfo` file to your friend
-4. Friend opens PDF Office, drags the `.pdfo` file onto the home screen
-5. Document appears instantly — no account needed!
-
-### Method 4: Share via Local Network (LAN)
+You can host PDF Office for everyone on your Wi-Fi network!
 
 ```powershell
-# Start the server accessible on your local network
+# Start the server explicitly on your local network
 pdf serve --port 3847
 
 # Your friend on the same WiFi opens:
 # http://YOUR_IP:3847
-# (Find your IP with: ipconfig)
+# (Find your IP using `ipconfig` or `ifconfig`)
 ```
 
 ---
 
-## 🖥️ All Commands
+## 🖥️ CLI Commands
 
-### Basic Commands
+PDF office ships with a rich CLI (`pdf`) for automated conversions, exports, and spell checking.
 
 | Command | What it does |
 |---------|-------------|
 | `pdf` | Launch the app and open it in your browser |
 | `pdf serve` | Start the server (browser does NOT auto-open) |
-| `pdf serve --port 8080` | Start on a specific port |
+| `pdf open myfile.docx` | Open a Word document |
+| `pdf open myfile.xlsx` | Open an Excel spreadsheet |
+| `pdf export myfile.pdfo --format docx` | Convert to Word format |
+| `pdf export myfile.pdfo --format pdf` | Convert to PDF |
+| `pdf convert input.docx output.pdf` | Convert between supported formats headlessly |
+| `pdf spell myfile.docx` | Check spelling in a document |
 | `pdf version` | Show version information |
 | `pdf update` | Check for updates |
 
-### Document Commands
-
-| Command | What it does |
-|---------|-------------|
-| `pdf open myfile.docx` | Open a Word document |
-| `pdf open myfile.xlsx` | Open an Excel spreadsheet |
-| `pdf open myfile.pptx` | Open a PowerPoint presentation |
-| `pdf open myfile.pdfo` | Open a PDF Office document |
-| `pdf open myfile.pdf` | Open a PDF file |
-| `pdf open myfile.odt` | Open an OpenDocument text file |
-
-### Export Commands
-
-| Command | What it does |
-|---------|-------------|
-| `pdf export myfile.pdfo --format docx` | Convert to Word format |
-| `pdf export myfile.pdfo --format pdf` | Convert to PDF |
-| `pdf export myfile.pdfo --format xlsx` | Convert to Excel format |
-| `pdf export myfile.pdfo --format pptx` | Convert to PowerPoint |
-| `pdf export myfile.pdfo --format odt` | Convert to OpenDocument |
-| `pdf export myfile.pdfo --format pdf --output out.pdf` | Export with custom filename |
-
-### Conversion Commands
-
-| Command | What it does |
-|---------|-------------|
-| `pdf convert input.docx output.pdf` | Convert any format to any other |
-| `pdf convert report.xlsx report.csv` | Convert spreadsheet formats |
-
-### Spell Check
-
-| Command | What it does |
-|---------|-------------|
-| `pdf spell myfile.pdfo` | Check spelling in a document |
-| `pdf spell myfile.pdfo --lang en` | Check with specific language |
-
-### Advanced / Server Options
-
-| Command | What it does |
-|---------|-------------|
-| `pdf serve --port 3847 --no-browser` | Start without opening browser |
-| `pdf serve --data-dir C:\MyDocs` | Store documents in a specific folder |
-| `pdf --verbose serve` | Show detailed log output |
+*Run `pdf --help` for deeper sub-command options.*
 
 ---
 
-## 🎯 Using the App (For Everyone — No Tech Skills Needed)
+## 🎯 Using the App (For Everyone)
 
 ### Home Screen
-
 When you open PDF Office, you'll see the **Home** screen:
-
 - **📝 New Document** — Creates a blank Word-like document
 - **📊 New Spreadsheet** — Creates a blank Excel-like spreadsheet  
 - **📽️ New Presentation** — Creates a blank slide presentation
-- **Recent Documents** — Your last-edited files appear here automatically
 - **Drag & Drop** — Drag any `.docx`, `.xlsx`, `.pptx`, or `.pdf` file directly onto the home screen to open it
 
 ---
 
 ### 📝 Writer (Word Processor)
-
-**How to use:**
-1. Click **"📝 New Document"** or **Writer** in the sidebar
-2. Start typing! The document auto-saves every 2 seconds
-3. Use the **ribbon toolbar** at the top to format your text
-
-**Ribbon toolbar features:**
-| Button | What it does |
-|--------|-------------|
-| 💾 Save | Save manually right now |
-| 📤 Share | Export a `.pdfo` file to send to a friend |
-| **B** | Make text **bold** |
-| *I* | Make text *italic* |
-| <u>U</u> | Underline text |
-| Font dropdown | Change the font (Times New Roman, Arial, etc.) |
-| Size dropdown | Change text size (8pt to 72pt) |
-| ⬛ Left | Align text to the left |
-| ▬ Center | Center the text |
-| ⬛ Right | Align text to the right |
-| ≡ Justify | Justify text to both edges |
-| •≡ List | Add a bullet point list |
-| 1≡ Numbered | Add a numbered list |
-| ─ Line | Add a horizontal line |
-| ⬇️ DOCX | Download as Word file |
-| ⬇️ PDF | Download as PDF |
-| 🕐 History | View and restore old versions |
-| ✓ Spell | Run spell check |
-
-**Keyboard shortcuts:**
-| Keys | Action |
-|------|--------|
-| `Ctrl+S` | Save |
-| `Ctrl+B` | Bold |
-| `Ctrl+I` | Italic |
-| `Ctrl+U` | Underline |
-| `Ctrl+F` | Find text |
-| `Ctrl+P` | Print |
-
----
+1. Click **"📝 New Document"** or **Writer** in the sidebar.
+2. Start typing! The document auto-saves locally every 2 seconds.
+3. Use the **rich ribbon toolbar** to format text, add headers, align content, and export instantly to `.docx` or `.pdf`.
+4. Run the integrated spell check via the **✓ Spell** button.
+5. Hit `Ctrl+P` to print your document natively.
 
 ### 📊 Sheets (Spreadsheet)
-
-**How to use:**
-1. Click **"📊 New Spreadsheet"** or **Sheets** in the sidebar
-2. Click any cell to select it
-3. Type a value or formula in the **formula bar** at the top
-4. Press **Enter** to confirm and move to the next row
-
-**Formula bar:**
-- Shows the current cell reference (e.g. `A1`)
-- Type values like `25` or `Hello`
-- Type formulas starting with `=` like `=SUM(A1:A10)`
-- As you type `=`, a dropdown of available functions appears automatically!
-
-**Common formulas:**
-
-| Formula | What it does |
-|---------|-------------|
-| `=SUM(A1:A10)` | Add up cells A1 through A10 |
-| `=AVERAGE(B1:B5)` | Average of B1 to B5 |
-| `=MAX(C1:C100)` | Largest value in column C |
-| `=MIN(C1:C100)` | Smallest value in column C |
-| `=COUNT(A:A)` | Count how many numbers are in column A |
-| `=IF(A1>100, "Big", "Small")` | Show "Big" if A1 > 100, else "Small" |
-| `=VLOOKUP(A1, B:C, 2, FALSE)` | Look up A1 in column B, return column C |
-| `=CONCATENATE(A1, " ", B1)` | Join two cells together |
-| `=TODAY()` | Today's date |
-| `=LEN(A1)` | Number of characters in A1 |
-
-**Ribbon shortcuts:**
-| Button | What it does |
-|--------|-------------|
-| Σ SUM | Insert SUM formula |
-| x̄ AVG | Insert AVERAGE formula |
-| # COUNT | Insert COUNT formula |
-| ? IF | Insert IF formula |
-| ⬇️ XLSX | Download as Excel file |
-
-**Keyboard navigation:**
-| Keys | Action |
-|------|--------|
-| Arrow keys | Move between cells |
-| `Enter` | Confirm and go down |
-| `Tab` | Confirm and go right |
-| `Delete` | Clear the selected cell |
-
----
+1. Click **"📊 New Spreadsheet"** or **Sheets** in the sidebar.
+2. Formats and layouts are supported exactly like Excel.
+3. Type formulas starting with `=` (e.g. `=SUM(A1:A10)`). Over 130 native formulas are supported covering Math, Logic, Date, Text, and Lookups (`VLOOKUP`).
+4. Auto-completion prompts will help you build your formulas.
 
 ### 📽️ Slides (Presentation)
-
-**How to use:**
-1. Click **"📽️ New Presentation"** or **Slides** in the sidebar
-2. Use the ribbon toolbar:
-   - **+ New Slide** — Add another slide
-   - **T Text** — Add a text box to the slide
-   - **◻ Shape** — Add a shape (coming soon)
-3. Click the slide thumbnail panel on the left to switch between slides
-4. Click on any text box on the slide canvas to edit it
-5. When done, click **⬇️ PPTX** to download as PowerPoint
-
----
+1. Click **"📽️ New Presentation"** or **Slides** in the sidebar.
+2. Manage multiple slides via the left-side thumbnail panel.
+3. Click elements natively in the canvas to adjust and refine styles.
 
 ### 📄 PDF Tools
-
-**How to use:**
-1. Click **PDF** in the sidebar
-2. Drag a PDF file onto the page, or click **"📂 Open PDF"**
-3. Use the toolbar to:
-   - **🔗 Merge** — Combine two PDFs into one
-   - **✂️ Split** — Split one PDF into multiple files
-   - **💧 Watermark** — Add a watermark to a PDF
+1. Click **PDF** in the sidebar.
+2. **Merge:** Combine multiple PDFs.
+3. **Split:** Break large PDFs apart.
+4. **Watermark:** Instantly stamp your documents with transparency.
 
 ---
 
-## ⌨️ Global Keyboard Shortcuts
+## 📁 Data and Privacy
 
-These work anywhere in the app:
-
-| Keys | Action |
-|------|--------|
-| `Ctrl+S` | Quick save current document |
-| `Ctrl+Shift+T` | Toggle dark/light theme |
-| `F1` | Open Help & Shortcuts guide |
-
----
-
-## 🌙 Themes
-
-PDF Office supports **Light** and **Dark** modes:
-
-- Click the **🌓** button (top right) to toggle instantly
-- Or go to **⚙️ Settings → Theme** to set your preference
-
----
-
-## 📁 Where Are My Documents Stored?
-
-All your documents are stored locally in a SQLite database on your computer:
+All your documents are stored natively in a highly efficient internal **SQLite** database resting entirely on your filesystem:
 
 ```
 Windows: C:\Users\YOUR_NAME\AppData\Local\pdf-office\data.db
 Linux/Mac: ~/.local/share/pdf-office/data.db
 ```
 
-**Your data never leaves your computer.** No account required, no internet connection needed (except loading Google Fonts on first launch).
-
----
-
-## 🔧 Troubleshooting
-
-### App won't start / "linker error"
-You need Microsoft Visual C++ build tools:
-1. Download from: https://visualstudio.microsoft.com/visual-cpp-build-tools/
-2. Install with "Desktop development with C++" workload
-3. Restart your terminal
-4. Run `cargo run --bin pdf` again
-
-### Port already in use
-```powershell
-pdf serve --port 8080   # Use a different port
-```
-
-### App opens but shows blank page
-Try refreshing with `Ctrl+Shift+R` (hard refresh).
-
-### Can't open .docx / .xlsx files
-Drag and drop the file directly onto the PDF Office home screen. The import dialog should appear.
-
-### Build takes too long the first time
-That's normal! Rust downloads and compiles all dependencies the first time. After that, it's fast. ☕
-
----
-
-## 🏗️ Building a Release Version
-
-```powershell
-# Build optimized release (smaller, faster)
-cargo build --release --bin pdf
-
-# The executable is at:
-target\release\pdf.exe   # Windows
-target/release/pdf        # Linux/Mac
-
-# Install globally
-cargo install --path . --bin pdf
-pdf   # Run from anywhere!
-```
+**Your data safely stays on your computer.** No account required, no telemetry payloads, and absolutely no internet connection needed.
 
 ---
 
@@ -358,65 +153,46 @@ pdf   # Run from anywhere!
 
 | Format | Read | Write | Notes |
 |--------|------|-------|-------|
-| `.pdfo` | ✅ | ✅ | Native PDF Office format |
+| `.pdfo` | ✅ | ✅ | Native PDF Office SQLite bundle |
 | `.docx` | ✅ | ✅ | Microsoft Word |
 | `.odt` | ✅ | ✅ | OpenDocument Text |
 | `.xlsx` | ✅ | ✅ | Microsoft Excel |
 | `.pptx` | ✅ | ✅ | Microsoft PowerPoint |
 | `.pdf` | ✅ | ✅ | Portable Document Format |
 | `.rtf` | ✅ | ❌ | Rich Text Format |
-| `.csv` | ✅ | ❌ | Comma-Separated Values |
 
 ---
 
-## 🤔 Frequently Asked Questions
+## 🛠️ Architecture
 
-**Q: Does it need internet?**
-> No. Once installed, it works 100% offline. (Google Fonts loads on first launch only if you have internet — it falls back to system fonts without it.)
+To bypass extremely strict distribution limitations, PDF Office was massively refactored into a **monolithic unified crate architecture**. 
 
-**Q: Can two people edit the same document at the same time?**
-> On a local network, yes — share the server with `pdf serve` and others connect via browser. Real-time collaboration is supported via WebSocket.
+Everything from the `axum` local webserver, to the `tiny-skia` SVG rasterizers, to the `.docx` xml parsing pipelines, to the 130+ Sheets function evaluators are all bundled into the highly modular internal `src/` directory tree under the `pdforg` identity.
 
-**Q: Is my data safe?**
-> Yes. Everything is stored locally in a SQLite database. Nothing is sent anywhere. No telemetry.
+| Internal Module | Purpose |
+|----------------|---------|
+| `core` | Core structural data types (Document, Cell, Slide) |
+| `writer` | Word processor text block layout and calculation |
+| `sheets` | Spreadsheet engine, dependency graph, formula evaluator |
+| `slides` | Presentation engine and slide rendering |
+| `formats` | File format XML parsers (docx, xlsx, pptx, odt) |
+| `pdf_tools` | Native PDF generation (via `lopdf`) |
+| `render` | SVG/raster renderer integrations |
+| `spell` | Hunspell-compatible spell checking engine |
+| `storage` | SQLite file and state layer |
+| `server` | Axum HTTP router + live WebSocket handlers |
 
-**Q: What's the difference between .pdfo and .docx?**
-> `.pdfo` is PDF Office's native format — faster, smaller, preserves everything. `.docx` is for compatibility with Microsoft Word. Use `.docx` when sharing with Word users.
-
-**Q: How do I update the app?**
-> If you installed from source: `git pull` then `cargo install --path . --bin pdf --force`
-> If you have the exe: replace it with the new one.
-
----
-
-## 🛠️ For Developers
-
-### Workspace Crates
-
-| Crate | Purpose |
-|-------|---------|
-| `pdf-core` | Core data types (Document, Cell, Slide) |
-| `pdf-writer` | Word processor logic |
-| `pdf-sheets` | Spreadsheet engine with 130+ functions |
-| `pdf-slides` | Presentation engine |
-| `pdf-formats` | File format parsers (docx, xlsx, pptx, odt) |
-| `pdf-pdf` | PDF manipulation (lopdf) |
-| `pdf-render` | SVG/raster renderer (tiny-skia) |
-| `pdf-spell` | Spell checker |
-| `pdf-storage` | SQLite storage layer |
-| `pdf-server` | Axum HTTP + WebSocket server |
-| `pdf-cli` | CLI entry point |
-
-### Run Tests
+### Building and Testing
 
 ```powershell
-cargo test --workspace
-```
+# Build binaries
+cargo build --release
 
-### Apply All Lint Fixes
+# Run comprehensive test suite
+cargo test
 
-```powershell
-cargo fix --workspace --allow-dirty
+# Apply lints and automatic fixes
+cargo fix --allow-dirty
 ```
 
 ---
