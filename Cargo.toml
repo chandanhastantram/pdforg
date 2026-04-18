@@ -1,103 +1,75 @@
-[workspace]
-resolver = "2"
-members = [
-    "crates/pdf-core",
-    "crates/pdf-writer",
-    "crates/pdf-sheets",
-    "crates/pdf-slides",
-    "crates/pdf-pdf",
-    "crates/pdf-formats",
-    "crates/pdf-spell",
-    "crates/pdf-render",
-    "crates/pdf-storage",
-    "crates/pdf-server",
-    "crates/pdf-cli",
-    "crates/pdf-ui",
-]
-
-[workspace.package]
-version = "0.1.0"
+[package]
+name = "pdforg"
+version = "0.2.0"
 edition = "2021"
-authors = ["PDF Office Team <support@pdf-office.local>"]
+description = "PDF Office — local-first, private, Rust-native office suite (Writer, Sheets, Slides, PDF Tools)"
 license = "MIT"
-description = "PDF Office — local-first, privacy-respecting office suite built in Rust"
-repository = "https://github.com/pdf-local/pdf"
-homepage = "https://github.com/pdf-local/pdf"
+repository = "https://github.com/chandanhastantram/pdforg"
+homepage = "https://github.com/chandanhastantram/pdforg"
+readme = "README.md"
 keywords = ["office", "pdf", "writer", "spreadsheet", "presentation"]
 categories = ["command-line-utilities", "text-editors"]
-readme = "README.md"
+default-run = "pdf"
 
-[workspace.dependencies]
+[[bin]]
+name = "pdf"
+path = "src/main.rs"
+
+[lib]
+name = "pdforg"
+path = "src/lib.rs"
+
+[dependencies]
 # Serialization
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
 
-# Async runtime
-tokio = { version = "1", features = ["full"] }
-
-# Web server
-axum = { version = "0.7", features = ["ws", "multipart"] }
-tower = "0.4"
-tower-http = { version = "0.5", features = ["fs", "cors", "trace"] }
-tokio-tungstenite = "0.24"
+# Async runtime + web server
+tokio       = { version = "1", features = ["full"] }
+axum        = { version = "0.7", features = ["ws", "multipart"] }
+tower-http  = { version = "0.5", features = ["fs", "cors", "trace"] }
+futures     = "0.3"
 
 # CLI
-clap = { version = "4", features = ["derive"] }
+clap        = { version = "4", features = ["derive"] }
 
 # Database
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite    = { version = "0.31", features = ["bundled"] }
 
-# UUID/Time
-uuid = { version = "1", features = ["v4", "serde"] }
-chrono = { version = "0.4", features = ["serde"] }
+# UUID / Time
+uuid        = { version = "1", features = ["v4", "serde"] }
+chrono      = { version = "0.4", features = ["serde"] }
 
 # File formats
-zip = "2"
-quick-xml = { version = "0.36" }
+zip         = "2"
+quick-xml   = "0.36"
 
-# Images
-image = "0.25"
-
-# Error handling
-thiserror = "1"
-anyhow = "1"
-
-# Logging
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-# Parallelism
-rayon = "1"
+# Images / Rendering
+image       = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+tiny-skia   = "0.11"
 
 # PDF
-lopdf = "0.33"
+lopdf       = "0.33"
 
-# Encoding
-encoding_rs = "0.8"
-base64 = "0.22"
+# Error handling
+thiserror   = "1"
+anyhow      = "1"
 
-# Rendering
-tiny-skia = "0.11"
+# Logging
+tracing              = "0.1"
+tracing-subscriber   = { version = "0.3", features = ["env-filter"] }
 
-# Fonts
-fontdb = "0.16"
+# Parallelism
+rayon       = "1"
 
 # Text
 unicode-segmentation = "1"
-unicode-bidi = "0.3"
 
 # Collections
-indexmap = { version = "2", features = ["serde"] }
-
-# Hashing
-sha2 = "0.10"
-hex = "0.4"
+indexmap    = { version = "2", features = ["serde"] }
 
 # Open browser
-open = "5"
-
-# HTTP client (update feature only)
-reqwest = { version = "0.12", features = ["json"] }
+open        = "5"
 
 [profile.dev]
 opt-level = 0
