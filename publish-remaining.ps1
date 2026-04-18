@@ -1,5 +1,4 @@
-# publish.ps1 — publishes all pdforg crates to crates.io in dependency order
-$ErrorActionPreference = "Stop"
+# publish-remaining.ps1 — publishes the remaining 6 crates (after rate limit reset)
 $delay = 35
 
 function Publish-Crate {
@@ -10,19 +9,20 @@ function Publish-Crate {
     Write-Host "========================================"
     Push-Location $CratePath
     cargo publish --no-verify
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  FAILED - waiting 10 min and retrying..."
+        Start-Sleep -Seconds 600
+        cargo publish --no-verify
+    }
     Pop-Location
     Write-Host "  Waiting ${delay}s for crates.io to index..."
     Start-Sleep -Seconds $delay
 }
 
-Write-Host "PDF Office - Publishing all crates to crates.io"
-Write-Host "This will take about 7 minutes total."
+Write-Host "PDF Office - Publishing remaining crates (rate limit reset)"
+Write-Host "Waiting 5 minutes for rate limit to fully clear..."
+Start-Sleep -Seconds 300
 
-Publish-Crate "crates\pdf-core"    "pdforg-core"
-Publish-Crate "crates\pdf-spell"   "pdforg-spell"
-Publish-Crate "crates\pdf-writer"  "pdforg-writer"
-Publish-Crate "crates\pdf-sheets"  "pdforg-sheets"
-Publish-Crate "crates\pdf-slides"  "pdforg-slides"
 Publish-Crate "crates\pdf-pdf"     "pdforg-pdf"
 Publish-Crate "crates\pdf-formats" "pdforg-formats"
 Publish-Crate "crates\pdf-render"  "pdforg-render"
@@ -31,14 +31,14 @@ Publish-Crate "crates\pdf-server"  "pdforg-server"
 
 Write-Host ""
 Write-Host "========================================"
-Write-Host "Publishing: pdforg (the binary!)"
+Write-Host "Publishing: pdforg (the final binary!)"
 Write-Host "========================================"
 Push-Location "crates\pdf-cli"
 cargo publish --no-verify
 Pop-Location
 
 Write-Host ""
-Write-Host "======================================== ALL DONE!"
+Write-Host "======================================== COMPLETE!"
 Write-Host ""
 Write-Host "Anyone can now install PDF Office with:"
 Write-Host "  cargo install pdforg"
