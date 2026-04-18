@@ -1,14 +1,19 @@
 [package]
-name = "pdf-sheets"
-version.workspace = true
-edition.workspace = true
+name = "pdforg-sheets"
+version = "0.1.0"
+edition = "2021"
+description = "Spreadsheet engine with 130+ functions for PDF Office"
+license = "MIT"
+repository = "https://github.com/chandanhastantram/pdforg"
+keywords = ["office", "spreadsheet", "excel"]
+categories = ["text-editors"]
 
 [dependencies]
-pdf-core = { path = "../pdf-core" }
-serde = { workspace = true }
-serde_json = { workspace = true }
-uuid = { workspace = true }
-chrono = { workspace = true }
-indexmap = { workspace = true }
-thiserror = { workspace = true }
-rayon = { workspace = true }
+pdf-core   = { path = "../pdf-core", version = "0.1.0", package = "pdforg-core" }
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid       = { version = "1", features = ["v4"] }
+chrono     = { version = "0.4", features = ["serde"] }
+indexmap   = { version = "2", features = ["serde"] }
+thiserror  = "1"
+rayon      = "1"

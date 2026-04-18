@@ -1,7 +1,12 @@
 [package]
-name = "pdf-spell"
+name = "pdforg-spell"
 version = "0.1.0"
 edition = "2021"
+description = "Spell checker for PDF Office"
+license = "MIT"
+repository = "https://github.com/chandanhastantram/pdforg"
+keywords = ["spell", "spell-check", "office"]
+categories = ["text-processing"]
 
 [dependencies]
 unicode-segmentation = "1"

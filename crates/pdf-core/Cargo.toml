@@ -1,7 +1,12 @@
 [package]
-name = "pdf-core"
-version.workspace = true
-edition.workspace = true
+name = "pdforg-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core data types for PDF Office — documents, cells, slides"
+license = "MIT"
+repository = "https://github.com/chandanhastantram/pdforg"
+keywords = ["office", "pdf", "document"]
+categories = ["data-structures"]
 
 [dependencies]
 serde = { workspace = true }
