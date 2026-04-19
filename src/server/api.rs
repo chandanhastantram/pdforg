@@ -1,7 +1,7 @@
 //! REST API handlers for the PDF Office server.
 
 use axum::{
-    extract::{Path, State, Json, Multipart},
+    extract::{Path, State, Json, Multipart, Query},
     response::{IntoResponse, Response},
     http::StatusCode,
 };
@@ -340,5 +340,540 @@ pub async fn convert_file(mut multipart: Multipart) -> impl IntoResponse {
             }
         }
         _ => (StatusCode::BAD_REQUEST, "Unsupported output format. Supported: docx, pdf").into_response(),
+    }
+}
+
+// ─── Direct Browser Download ──────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct BinaryQuery {
+    pub platform: Option<String>,
+}
+
+pub async fn download_binary(
+    Query(_query): Query<BinaryQuery>,
+) -> impl IntoResponse {
+    match std::env::current_exe() {
+        Ok(exe_path) => {
+            match std::fs::read(&exe_path) {
+                Ok(bytes) => {
+                    let filename = exe_path.file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| "pdf_office_binary".to_string());
+                    (
+                        StatusCode::OK,
+                        [
+                            ("Content-Type", "application/octet-stream"),
+                            ("Content-Disposition", &format!("attachment; filename=\"{}\"", filename)),
+                        ],
+                        bytes,
+                    ).into_response()
+                }
+                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read executable: {}", e)).into_response(),
+            }
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Could not find current executable: {}", e)).into_response(),
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// REAL PDF PROCESSING ENDPOINTS
+// Every handler: (1) reads multipart PDF upload, (2) calls real backend,
+// (3) streams the processed PDF back as a download.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Helper — extract all multipart fields into a map
+async fn collect_multipart(mut mp: Multipart) -> (Option<Vec<u8>>, std::collections::HashMap<String, String>) {
+    let mut file_bytes: Option<Vec<u8>> = None;
+    let mut fields = std::collections::HashMap::new();
+    while let Ok(Some(field)) = mp.next_field().await {
+        let name = field.name().unwrap_or("").to_string();
+        if name == "file" || name == "pdf" {
+            if let Ok(bytes) = field.bytes().await {
+                file_bytes = Some(bytes.to_vec());
+            }
+        } else {
+            if let Ok(text) = field.text().await {
+                fields.insert(name, text);
+            }
+        }
+    }
+    (file_bytes, fields)
+}
+
+fn pdf_response(bytes: Vec<u8>, filename: &str) -> Response {
+    let cd = format!("attachment; filename=\"{}\"", filename);
+    (
+        StatusCode::OK,
+        [
+            ("Content-Type".to_string(), "application/pdf".to_string()),
+            ("Content-Disposition".to_string(), cd),
+        ],
+        bytes,
+    ).into_response()
+}
+
+fn err500(msg: impl std::fmt::Display) -> Response {
+    (StatusCode::INTERNAL_SERVER_ERROR, msg.to_string()).into_response()
+}
+
+fn err400(msg: impl std::fmt::Display) -> Response {
+    (StatusCode::BAD_REQUEST, msg.to_string()).into_response()
+}
+
+// ─── Merge ────────────────────────────────────────────────────────────────────
+
+pub async fn pdf_merge(mut multipart: Multipart) -> impl IntoResponse {
+    let mut pdfs: Vec<Vec<u8>> = vec![];
+    while let Ok(Some(field)) = multipart.next_field().await {
+        if let Ok(bytes) = field.bytes().await {
+            if !bytes.is_empty() { pdfs.push(bytes.to_vec()); }
+        }
+    }
+    if pdfs.len() < 2 {
+        return err400("Upload at least 2 PDF files to merge");
+    }
+    let refs: Vec<&[u8]> = pdfs.iter().map(|v| v.as_slice()).collect();
+    match crate::pdf_tools::merge_pdfs(&refs) {
+        Ok(out) => pdf_response(out, "merged.pdf"),
+        Err(e)  => err500(e),
+    }
+}
+
+// ─── Split ────────────────────────────────────────────────────────────────────
+
+pub async fn pdf_split(multipart: Multipart) -> impl IntoResponse {
+    let (bytes, fields) = collect_multipart(multipart).await;
+    let bytes = match bytes { Some(b) => b, None => return err400("No PDF uploaded") };
+
+    let method = fields.get("method").map(|s| s.as_str()).unwrap_or("bypage");
+    let value  = fields.get("value").map(|s| s.as_str()).unwrap_or("1");
+
+    let doc = match lopdf::Document::load_mem(&bytes) {
+        Ok(d) => d, Err(e) => return err500(e),
+    };
+    let total = doc.get_pages().len();
+
+    let ranges: Vec<crate::pdf_tools::PageRange> = match method {
+        "bypage" => {
+            let n: usize = value.parse().unwrap_or(1).clamp(1, total - 1);
+            vec![
+                crate::pdf_tools::PageRange::range(1, n),
+                crate::pdf_tools::PageRange::range(n + 1, total),
+            ]
+        }
+        "range" => {
+            // "value" = page range spec per split part, comma-separated parts
+            let pages = crate::pdf_tools::PageRange::parse(value, total);
+            if pages.is_empty() {
+                return err400("Invalid page range");
+            }
+            let &first = pages.first().unwrap();
+            let &last  = pages.last().unwrap();
+            vec![crate::pdf_tools::PageRange::range(first, last)]
+        }
+        _ => {
+            vec![crate::pdf_tools::PageRange::range(1, total / 2),
+                 crate::pdf_tools::PageRange::range(total / 2 + 1, total)]
+        }
+    };
+
+    match crate::pdf_tools::split_pdf(&bytes, &ranges) {
+        Err(e) => err500(e),
+        Ok(parts) => {
+            if parts.len() == 1 {
+                return pdf_response(parts.into_iter().next().unwrap(), "split.pdf");
+            }
+            // Return as ZIP
+            let mut zip_buf = Vec::new();
+            {
+                let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut zip_buf));
+                let opts: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default()
+                    .compression_method(zip::CompressionMethod::Deflated);
+                for (i, part) in parts.iter().enumerate() {
+                    zip.start_file(format!("part-{}.pdf", i + 1), opts).ok();
+                    use std::io::Write;
+                    zip.write_all(part).ok();
+                }
+                zip.finish().ok();
+            }
+            (StatusCode::OK,
+             [("Content-Type", "application/zip"),
+              ("Content-Disposition", "attachment; filename=\"split.zip\"")],
+             zip_buf
+            ).into_response()
+        }
+    }
+}
+
+// ─── Compress ─────────────────────────────────────────────────────────────────
+
+pub async fn pdf_compress(multipart: Multipart) -> impl IntoResponse {
+    let (bytes, fields) = collect_multipart(multipart).await;
+    let bytes = match bytes { Some(b) => b, None => return err400("No PDF uploaded") };
+    let level = crate::pdf_tools::CompressLevel::from(
+        fields.get("level").map(|s| s.as_str()).unwrap_or("medium")
+    );
+    match crate::pdf_tools::compress_pdf(&bytes, level) {
+        Ok((out, saved)) => {
+            tracing::info!("Compressed PDF: saved {} bytes", saved);
+            pdf_response(out, "compressed.pdf")
+        }
+        Err(e) => err500(e),
+    }
+}
+
+// ─── Protect / Encrypt ────────────────────────────────────────────────────────
+
+pub async fn pdf_protect(multipart: Multipart) -> impl IntoResponse {
+    let (bytes, fields) = collect_multipart(multipart).await;
+    let bytes = match bytes { Some(b) => b, None => return err400("No PDF uploaded") };
+
+    let user_pass  = fields.get("open_password").map(|s| s.as_str()).unwrap_or("");
+    let owner_pass = fields.get("owner_password").map(|s| s.as_str()).unwrap_or("owner");
+
+    // Build permission flags
+    let mut perms = crate::pdf_tools::Permissions::all();
+    if fields.get("no_print").map(|v| v == "1").unwrap_or(false)  { perms &= !crate::pdf_tools::Permissions::PRINT; }
+    if fields.get("no_copy") .map(|v| v == "1").unwrap_or(false)  { perms &= !crate::pdf_tools::Permissions::COPY; }
+    if fields.get("no_edit") .map(|v| v == "1").unwrap_or(false)  { perms &= !crate::pdf_tools::Permissions::MODIFY; }
+
+    match crate::pdf_tools::encrypt_pdf(&bytes, user_pass, owner_pass, perms) {
+        Ok(out) => pdf_response(out, "protected.pdf"),
+        Err(e)  => err500(e),
+    }
+}
+
+// ─── Watermark ────────────────────────────────────────────────────────────────
+
+pub async fn pdf_watermark(multipart: Multipart) -> impl IntoResponse {
+    let (bytes, fields) = collect_multipart(multipart).await;
+    let bytes = match bytes { Some(b) => b, None => return err400("No PDF uploaded") };
+
+    let config = crate::pdf_tools::WatermarkConfig {
+        text:      fields.get("text").cloned().unwrap_or_else(|| "CONFIDENTIAL".into()),
+        opacity:   fields.get("opacity").and_then(|v| v.parse().ok()).unwrap_or(0.3),
+        font_size: fields.get("font_size").and_then(|v| v.parse().ok()).unwrap_or(72.0),
+        position:  fields.get("position").cloned().unwrap_or_else(|| "center".into()),
+    };
+
+    match crate::pdf_tools::stamp::add_watermark(&bytes, &config) {
+        Ok(out) => pdf_response(out, "watermarked.pdf"),
+        Err(e)  => err500(e),
+    }
+}
+
+// ─── Rotate ───────────────────────────────────────────────────────────────────
+
+pub async fn pdf_rotate(multipart: Multipart) -> impl IntoResponse {
+    let (bytes, fields) = collect_multipart(multipart).await;
+    let bytes   = match bytes { Some(b) => b, None => return err400("No PDF uploaded") };
+    let degrees: i64 = fields.get("degrees").and_then(|v| v.parse().ok()).unwrap_or(90);
+    let pages_str = fields.get("pages").map(|s| s.as_str()).unwrap_or("all");
+
+    let page_nums: Vec<usize> = if pages_str == "all" {
+        vec![]  // empty = all pages
+    } else {
+        let doc = match lopdf::Document::load_mem(&bytes) {
+            Ok(d) => d, Err(e) => return err500(e),
+        };
+        let total = doc.get_pages().len();
+        crate::pdf_tools::PageRange::parse(pages_str, total)
+    };
+
+    match crate::pdf_tools::rotate_pages(&bytes, &page_nums, degrees) {
+        Ok(out) => pdf_response(out, "rotated.pdf"),
+        Err(e)  => err500(e),
+    }
+}
+
+// ─── Delete pages ─────────────────────────────────────────────────────────────
+
+pub async fn pdf_delete_pages(multipart: Multipart) -> impl IntoResponse {
+    let (bytes, fields) = collect_multipart(multipart).await;
+    let bytes = match bytes { Some(b) => b, None => return err400("No PDF uploaded") };
+    let range = fields.get("pages").map(|s| s.as_str()).unwrap_or("");
+
+    let doc = match lopdf::Document::load_mem(&bytes) {
+        Ok(d) => d, Err(e) => return err500(e),
+    };
+    let total = doc.get_pages().len();
+    let pages = crate::pdf_tools::PageRange::parse(range, total);
+
+    match crate::pdf_tools::delete_pages(&bytes, &pages) {
+        Ok(out) => pdf_response(out, "deleted.pdf"),
+        Err(e)  => err500(e),
+    }
+}
+
+// ─── Extract pages ────────────────────────────────────────────────────────────
+
+pub async fn pdf_extract_pages(multipart: Multipart) -> impl IntoResponse {
+    let (bytes, fields) = collect_multipart(multipart).await;
+    let bytes = match bytes { Some(b) => b, None => return err400("No PDF uploaded") };
+    let range = fields.get("pages").map(|s| s.as_str()).unwrap_or("1");
+
+    let doc = match lopdf::Document::load_mem(&bytes) {
+        Ok(d) => d, Err(e) => return err500(e),
+    };
+    let total = doc.get_pages().len();
+    let pages = crate::pdf_tools::PageRange::parse(range, total);
+
+    match crate::pdf_tools::extract_pages(&bytes, &pages) {
+        Ok(out) => pdf_response(out, "extracted.pdf"),
+        Err(e)  => err500(e),
+    }
+}
+
+// ─── Insert blank page ────────────────────────────────────────────────────────
+
+pub async fn pdf_insert_page(multipart: Multipart) -> impl IntoResponse {
+    let (bytes, fields) = collect_multipart(multipart).await;
+    let bytes      = match bytes { Some(b) => b, None => return err400("No PDF uploaded") };
+    let after_page: usize = fields.get("after").and_then(|v| v.parse().ok()).unwrap_or(0);
+    let width:  f64 = fields.get("width") .and_then(|v| v.parse().ok()).unwrap_or(595.0);
+    let height: f64 = fields.get("height").and_then(|v| v.parse().ok()).unwrap_or(842.0);
+
+    match crate::pdf_tools::insert_blank_page(&bytes, after_page, width, height) {
+        Ok(out) => pdf_response(out, "page_inserted.pdf"),
+        Err(e)  => err500(e),
+    }
+}
+
+// ─── Page numbers ─────────────────────────────────────────────────────────────
+
+pub async fn pdf_page_numbers(multipart: Multipart) -> impl IntoResponse {
+    let (bytes, fields) = collect_multipart(multipart).await;
+    let bytes = match bytes { Some(b) => b, None => return err400("No PDF uploaded") };
+
+    let position = crate::pdf_tools::StampPosition::from(
+        fields.get("position").map(|s| s.as_str()).unwrap_or("bottom-center")
+    );
+    let format = crate::pdf_tools::PageNumFormat::from(
+        fields.get("format").map(|s| s.as_str()).unwrap_or("arabic")
+    );
+    let start: usize    = fields.get("start").and_then(|v| v.parse().ok()).unwrap_or(1);
+    let font_size: f64  = fields.get("font_size").and_then(|v| v.parse().ok()).unwrap_or(10.0);
+
+    match crate::pdf_tools::add_page_numbers(&bytes, position, format, start, font_size) {
+        Ok(out) => pdf_response(out, "numbered.pdf"),
+        Err(e)  => err500(e),
+    }
+}
+
+// ─── Header / Footer ─────────────────────────────────────────────────────────
+
+pub async fn pdf_header_footer(multipart: Multipart) -> impl IntoResponse {
+    let (bytes, fields) = collect_multipart(multipart).await;
+    let bytes = match bytes { Some(b) => b, None => return err400("No PDF uploaded") };
+
+    let config = crate::pdf_tools::HeaderFooterConfig {
+        header_left:   fields.get("header_left")  .filter(|s| !s.is_empty()).cloned(),
+        header_center: fields.get("header_center").filter(|s| !s.is_empty()).cloned(),
+        header_right:  fields.get("header_right") .filter(|s| !s.is_empty()).cloned(),
+        footer_left:   fields.get("footer_left")  .filter(|s| !s.is_empty()).cloned(),
+        footer_center: fields.get("footer_center").filter(|s| !s.is_empty()).cloned(),
+        footer_right:  fields.get("footer_right") .filter(|s| !s.is_empty()).cloned(),
+        font_size:     fields.get("font_size").and_then(|v| v.parse().ok()).unwrap_or(10.0),
+        margin:        36.0,
+        start_page:    fields.get("start_page").and_then(|v| v.parse().ok()).unwrap_or(1),
+    };
+
+    match crate::pdf_tools::add_header_footer(&bytes, &config) {
+        Ok(out) => pdf_response(out, "header_footer.pdf"),
+        Err(e)  => err500(e),
+    }
+}
+
+// ─── Bates Numbering ─────────────────────────────────────────────────────────
+
+pub async fn pdf_bates(multipart: Multipart) -> impl IntoResponse {
+    let (bytes, fields) = collect_multipart(multipart).await;
+    let bytes = match bytes { Some(b) => b, None => return err400("No PDF uploaded") };
+
+    let config = crate::pdf_tools::BatesConfig {
+        prefix:    fields.get("prefix").cloned().unwrap_or_else(|| "DOC-".into()),
+        suffix:    fields.get("suffix").cloned().unwrap_or_default(),
+        start:     fields.get("start") .and_then(|v| v.parse().ok()).unwrap_or(1),
+        digits:    fields.get("digits").and_then(|v| v.parse().ok()).unwrap_or(6),
+        position:  crate::pdf_tools::StampPosition::from(
+                       fields.get("position").map(|s| s.as_str()).unwrap_or("bottom-right")),
+        font_size: fields.get("font_size").and_then(|v| v.parse().ok()).unwrap_or(9.0),
+    };
+
+    match crate::pdf_tools::add_bates_numbers(&bytes, &config) {
+        Ok(out) => pdf_response(out, "bates.pdf"),
+        Err(e)  => err500(e),
+    }
+}
+
+// ─── Metadata editor ─────────────────────────────────────────────────────────
+
+pub async fn pdf_get_metadata(mut multipart: Multipart) -> impl IntoResponse {
+    let mut bytes = vec![];
+    while let Ok(Some(field)) = multipart.next_field().await {
+        if let Ok(b) = field.bytes().await { bytes = b.to_vec(); break; }
+    }
+    if bytes.is_empty() { return (StatusCode::BAD_REQUEST, "No PDF").into_response(); }
+    match crate::pdf_tools::get_metadata(&bytes) {
+        Ok(meta) => Json(meta).into_response(),
+        Err(e)   => err500(e),
+    }
+}
+
+pub async fn pdf_set_metadata(multipart: Multipart) -> impl IntoResponse {
+    let (bytes, fields) = collect_multipart(multipart).await;
+    let bytes = match bytes { Some(b) => b, None => return err400("No PDF uploaded") };
+
+    let meta = crate::pdf_tools::PdfMetadata {
+        title:    fields.get("title")   .filter(|s| !s.is_empty()).cloned(),
+        author:   fields.get("author")  .filter(|s| !s.is_empty()).cloned(),
+        subject:  fields.get("subject") .filter(|s| !s.is_empty()).cloned(),
+        keywords: fields.get("keywords").filter(|s| !s.is_empty()).cloned(),
+        creator:  Some("PDF Office".into()),
+        ..Default::default()
+    };
+
+    match crate::pdf_tools::set_metadata(&bytes, &meta) {
+        Ok(out) => pdf_response(out, "metadata.pdf"),
+        Err(e)  => err500(e),
+    }
+}
+
+// ─── Sanitize ────────────────────────────────────────────────────────────────
+
+pub async fn pdf_sanitize(multipart: Multipart) -> impl IntoResponse {
+    let (bytes, fields) = collect_multipart(multipart).await;
+    let bytes = match bytes { Some(b) => b, None => return err400("No PDF uploaded") };
+
+    let opts = crate::pdf_tools::SanitizeOptions {
+        strip_metadata:      fields.get("metadata")    .map(|v| v != "0").unwrap_or(true),
+        strip_attachments:   fields.get("attachments") .map(|v| v != "0").unwrap_or(true),
+        strip_javascript:    fields.get("javascript")  .map(|v| v != "0").unwrap_or(true),
+        strip_hidden_layers: fields.get("layers")      .map(|v| v != "0").unwrap_or(true),
+        strip_search_index:  fields.get("search_index").map(|v| v != "0").unwrap_or(true),
+    };
+
+    match crate::pdf_tools::sanitize_pdf(&bytes, &opts) {
+        Ok(out) => pdf_response(out, "sanitized.pdf"),
+        Err(e)  => err500(e),
+    }
+}
+
+// ─── Flatten ─────────────────────────────────────────────────────────────────
+
+pub async fn pdf_flatten(multipart: Multipart) -> impl IntoResponse {
+    let (bytes, _) = collect_multipart(multipart).await;
+    let bytes = match bytes { Some(b) => b, None => return err400("No PDF uploaded") };
+
+    match crate::pdf_tools::flatten_pdf(&bytes) {
+        Ok(out) => pdf_response(out, "flattened.pdf"),
+        Err(e)  => err500(e),
+    }
+}
+
+// ─── Compare ─────────────────────────────────────────────────────────────────
+
+#[derive(serde::Serialize)]
+pub struct CompareResult {
+    pub page_count_a:  usize,
+    pub page_count_b:  usize,
+    pub differences:   Vec<CompareDiff>,
+}
+
+#[derive(serde::Serialize)]
+pub struct CompareDiff {
+    pub page:    usize,
+    pub kind:    String,
+    pub detail:  String,
+}
+
+pub async fn pdf_compare(mut multipart: Multipart) -> impl IntoResponse {
+    let mut pdfs: Vec<Vec<u8>> = vec![];
+    while let Ok(Some(field)) = multipart.next_field().await {
+        if let Ok(b) = field.bytes().await {
+            if !b.is_empty() { pdfs.push(b.to_vec()); }
+        }
+        if pdfs.len() == 2 { break; }
+    }
+    if pdfs.len() < 2 {
+        return (StatusCode::BAD_REQUEST, "Upload 2 PDFs to compare").into_response();
+    }
+    let doc_a = match lopdf::Document::load_mem(&pdfs[0]) { Ok(d) => d, Err(e) => return err500(e) };
+    let doc_b = match lopdf::Document::load_mem(&pdfs[1]) { Ok(d) => d, Err(e) => return err500(e) };
+
+    let count_a = doc_a.get_pages().len();
+    let count_b = doc_b.get_pages().len();
+    let mut diffs = vec![];
+
+    if count_a != count_b {
+        diffs.push(CompareDiff {
+            page: 0,
+            kind: "page-count".into(),
+            detail: format!("File A has {} pages; File B has {} pages", count_a, count_b),
+        });
+    }
+
+    // Simple text extraction comparison per page
+    let min_pages = count_a.min(count_b);
+    for p in 1..=min_pages {
+        let text_a = extract_page_text(&doc_a, p);
+        let text_b = extract_page_text(&doc_b, p);
+        if text_a != text_b {
+            diffs.push(CompareDiff {
+                page:   p,
+                kind:   "content".into(),
+                detail: format!("Page {} has different text content", p),
+            });
+        }
+    }
+
+    Json(CompareResult {
+        page_count_a: count_a,
+        page_count_b: count_b,
+        differences:  diffs,
+    }).into_response()
+}
+
+fn extract_page_text(doc: &lopdf::Document, page_num: usize) -> String {
+    // Basic text extraction from content streams (not full CMap decoding)
+    if let Ok(contents) = doc.get_page_content(
+        *doc.get_pages().get(&(page_num as u32)).unwrap_or(&(0, 0))
+    ) {
+        String::from_utf8_lossy(&contents).to_string()
+    } else {
+        String::new()
+    }
+}
+
+// ─── Unlock PDF ──────────────────────────────────────────────────────────────
+
+pub async fn pdf_unlock(multipart: Multipart) -> impl IntoResponse {
+    let (bytes, fields) = collect_multipart(multipart).await;
+    let bytes = match bytes { Some(b) => b, None => return err400("No PDF uploaded") };
+    let pass = fields.get("password").map(|s| s.as_str()).unwrap_or("");
+
+    match crate::pdf_tools::protect::decrypt_pdf(&bytes, pass) {
+        Ok(out) => pdf_response(out, "unlocked.pdf"),
+        Err(e)  => err500(e),
+    }
+}
+
+// ─── Images to PDF ───────────────────────────────────────────────────────────
+
+pub async fn pdf_images_to_pdf(mut multipart: Multipart) -> impl IntoResponse {
+    let mut images: Vec<Vec<u8>> = vec![];
+    while let Ok(Some(field)) = multipart.next_field().await {
+        if let Ok(b) = field.bytes().await {
+            if !b.is_empty() { images.push(b.to_vec()); }
+        }
+    }
+    if images.is_empty() {
+        return err400("No images uploaded");
+    }
+    let refs: Vec<&[u8]> = images.iter().map(|v| v.as_slice()).collect();
+    match crate::pdf_tools::images_to_pdf(&refs) {
+        Ok(out) => pdf_response(out, "images.pdf"),
+        Err(e)  => err500(e),
     }
 }

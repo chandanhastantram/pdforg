@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Download PDF Office</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', -apple-system, sans-serif; background: #0a0a0a; color: #ffffff; min-height: 100vh; overflow-x: hidden; }
+    
+    ::selection { background: #333; color: #fff; }
+    
+    .nav { position: fixed; top: 0; width: 100%; padding: 24px 48px; display: flex; justify-content: space-between; align-items: center; z-index: 10; backdrop-filter: blur(10px); border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .nav-logo { font-size: 16px; font-weight: 700; letter-spacing: -0.5px; }
+    .back-btn { color: #a1a1aa; text-decoration: none; font-size: 14px; font-weight: 500; transition: color 0.2s; }
+    .back-btn:hover { color: #ffffff; }
+
+    .hero { max-width: 800px; margin: 160px auto 80px; padding: 0 24px; text-align: center; }
+    .badge { display: inline-block; padding: 6px 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 100px; font-size: 12px; font-weight: 500; color: #a1a1aa; margin-bottom: 24px; letter-spacing: 0.5px; text-transform: uppercase; }
+    h1 { font-size: 56px; font-weight: 700; letter-spacing: -2px; line-height: 1.1; margin-bottom: 24px; }
+    .subtitle { font-size: 18px; color: #a1a1aa; line-height: 1.6; max-width: 600px; margin: 0 auto 48px; font-weight: 400; }
+
+    .primary-download { display: inline-flex; align-items: center; justify-content: center; background: #ffffff; color: #000000; padding: 16px 32px; border-radius: 8px; font-size: 16px; font-weight: 600; text-decoration: none; transition: transform 0.2s, background 0.2s; cursor: pointer; }
+    .primary-download:hover { background: #f4f4f5; transform: translateY(-1px); }
+
+    .terminal-section { margin-top: 24px; text-align: center; }
+    .terminal-label { font-size: 12px; color: #71717a; margin-bottom: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+    .code-block { background: #111111; border: 1px solid #27272a; padding: 16px 24px; border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 14px; color: #e4e4e7; display: inline-flex; align-items: center; gap: 16px; }
+    .copy-btn { background: transparent; border: 1px solid #3f3f46; color: #a1a1aa; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s; }
+    .copy-btn:hover { background: #27272a; color: #fff; }
+
+    .grid-section { max-width: 1000px; margin: 0 auto 120px; padding: 0 24px; }
+    .section-title { font-size: 20px; font-weight: 600; margin-bottom: 32px; letter-spacing: -0.5px; border-bottom: 1px solid #27272a; padding-bottom: 16px; }
+    
+    .platform-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+    .platform-card { background: #111111; border: 1px solid #27272a; border-radius: 12px; padding: 32px 24px; display: flex; flex-direction: column; transition: border-color 0.2s; }
+    .platform-card:hover { border-color: #52525b; }
+    .p-title { font-size: 18px; font-weight: 600; margin-bottom: 8px; color: #ffffff; }
+    .p-desc { font-size: 14px; color: #a1a1aa; margin-bottom: 24px; flex-grow: 1; line-height: 1.5; }
+    .p-btn { border: 1px solid #3f3f46; background: transparent; color: #e4e4e7; padding: 10px 16px; text-align: center; border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: 500; transition: all 0.2s; }
+    .p-btn:hover { background: #ffffff; color: #000000; border-color: #ffffff; }
+    .p-btn.recommended { background: #ffffff; color: #000000; border-color: #ffffff; }
+    .p-btn.recommended:hover { background: #f4f4f5; }
+
+    .features { display: flex; justify-content: center; gap: 48px; margin-top: 80px; flex-wrap: wrap; }
+    .feature { text-align: left; max-width: 250px; }
+    .feature h4 { font-size: 15px; font-weight: 600; margin-bottom: 8px; color: #e4e4e7; }
+    .feature p { font-size: 14px; color: #71717a; line-height: 1.6; }
+
+    @media (max-width: 768px) {
+      h1 { font-size: 40px; }
+      .platform-grid { grid-template-columns: 1fr; }
+      .features { flex-direction: column; gap: 32px; align-items: center; text-align: center; }
+      .feature { text-align: center; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo">PDF Office.</div>
+    <a href="https://github.com/chandanhastantram/pdforg" target="_blank" class="back-btn">View on GitHub</a>
+  </nav>
+
+  <main>
+    <div class="hero">
+      <div class="badge">Standalone Binary</div>
+      <h1>The locally native<br>PDF powerhouse.</h1>
+      <p class="subtitle">A complete document suite engineered in Rust. Zero telemetry, entirely offline, and relentlessly fast. No installation process or external dependencies required.</p>
+      
+      <div>
+        <!-- Link should eventually point to a GitHub Release, e.g. https://github.com/chandanhastantram/pdforg/releases/latest/download/pdf.exe -->
+        <a href="https://github.com/chandanhastantram/pdforg/releases" id="hero-dl" class="primary-download" target="_blank">Download for Windows (.exe)</a>
+      </div>
+
+      <div class="terminal-section">
+        <div class="terminal-label">or compile directly from source</div>
+        <div class="code-block">
+          <span>cargo install --git https://github.com/chandanhastantram/pdforg.git</span>
+          <button class="copy-btn" onclick="navigator.clipboard.writeText('cargo install --git https://github.com/chandanhastantram/pdforg.git'); this.textContent='Copied!'; setTimeout(() => this.textContent='Copy', 2000);">Copy</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-section">
+      <h2 class="section-title">Pre-compiled binaries</h2>
+      <div class="platform-grid">
+        <div class="platform-card" id="card-win">
+          <div class="p-title">Windows</div>
+          <div class="p-desc">Optimized for Windows 10 and 11 environments.</div>
+          <a href="https://github.com/chandanhastantram/pdforg/releases" class="p-btn" id="btn-win" target="_blank">Download .exe</a>
+        </div>
+        <div class="platform-card" id="card-mac">
+          <div class="p-title">macOS</div>
+          <div class="p-desc">Universal binary for Apple Silicon and Intel architecture.</div>
+          <a href="https://github.com/chandanhastantram/pdforg/releases" class="p-btn" id="btn-mac" target="_blank">Download binary</a>
+        </div>
+        <div class="platform-card" id="card-lin">
+          <div class="p-title">Linux</div>
+          <div class="p-desc">Statically linked ELF binary. Works on all major distributions.</div>
+          <a href="https://github.com/chandanhastantram/pdforg/releases" class="p-btn" id="btn-lin" target="_blank">Download binary</a>
+        </div>
+      </div>
+
+      <div class="features">
+        <div class="feature">
+          <h4>Drop-in Replacement</h4>
+          <p>Every core feature of enterprise PDF software without the licensing bloat.</p>
+        </div>
+        <div class="feature">
+          <h4>Privacy by Design</h4>
+          <p>We believe documents are private. The application cannot and will not connect to cloud translation or analytics.</p>
+        </div>
+        <div class="feature">
+          <h4>Single Executable</h4>
+          <p>No messy installation scripts. A single 30MB executable contains the backend, frontend, and dependencies.</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      let os = 'Unknown';
+      if (navigator.appVersion.indexOf("Win") !== -1) os = "Windows";
+      if (navigator.appVersion.indexOf("Mac") !== -1) os = "MacOS";
+      if (navigator.appVersion.indexOf("Linux") !== -1) os = "Linux";
+      
+      const heroDl = document.getElementById('hero-dl');
+      
+      if (os === "Windows") {
+        document.getElementById('btn-win').classList.add('recommended');
+        document.getElementById('btn-win').textContent = "Download .exe (Recommended)";
+      } else if (os === "MacOS") {
+        document.getElementById('btn-mac').classList.add('recommended');
+        document.getElementById('btn-mac').textContent = "Download binary (Recommended)";
+        heroDl.textContent = "Download for macOS";
+      } else if (os === "Linux") {
+        document.getElementById('btn-lin').classList.add('recommended');
+        document.getElementById('btn-lin').textContent = "Download binary (Recommended)";
+        heroDl.textContent = "Download for Linux";
+      }
+    });
+  </script>
+</body>
+</html>

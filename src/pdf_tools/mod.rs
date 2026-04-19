@@ -2,6 +2,11 @@ use thiserror::Error;
 
 pub mod creator;
 pub mod manipulator;
+pub mod protect;
+pub mod compress;
+pub mod stamp;
+pub mod metadata;
+pub mod images;
 
 #[derive(Debug, Error)]
 pub enum PdfError {
@@ -19,3 +24,8 @@ pub enum PdfError {
 
 pub use creator::*;
 pub use manipulator::*;
+pub use protect::*;
+pub use compress::*;
+pub use stamp::*;
+pub use metadata::*;
+pub use images::*;
