@@ -1,200 +1,93 @@
 # 📄 PDF Office (`pdforg`)
 
+[![Website](https://img.shields.io/website?url=https%3A%2F%2Fpdforg.vercel.app&label=Live%20Website&logo=vercel)](https://pdforg.vercel.app/)
+[![Crates.io](https://img.shields.io/crates/v/pdforg.svg)](https://crates.io/crates/pdforg)
+
 > **Local-first, private, Rust-native office suite — no cloud, no subscriptions, no telemetry.**
 
-PDF Office is an all-in-one office application that includes a word processor (Writer), spreadsheet editor (Sheets), presentation maker (Slides), and PDF tools — all running completely on your own computer. 
+PDF Office is an enterprise-grade suite including a word processor (Writer), spreadsheet editor (Sheets), presentation maker (Slides), and an incredibly powerful, native PDF manipulation backend — **all running completely on your own computer.** 
 
-Available globally on crates.io as `pdforg`.
+You can find the official download site here: **[pdforg.vercel.app](https://pdforg.vercel.app/)**
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick Download & Install
 
-### Method 1 — Install Globally via Crates.io (Recommended)
+### Option 1 — Download Pre-Compiled Binaries
+Visit **[pdforg.vercel.app](https://pdforg.vercel.app/)** to immediately download the standalone executable.
+There are no installation scripts or massive dependencies. A single 30MB executable contains the entire Rust backend, the frontend UI, and all dependencies. Just double-click and run.
 
-**Requirements:** Rust + MSVC Build Tools (Windows) / build-essential (Linux/Mac).
+### Option 2 — Install via Cargo (For Developers)
 
-You can easily install PDF Office directly from the central Rust package registry. Once installed, you can launch the app from anywhere.
+You can easily compile and install PDF Office directly from source or the central Rust registry. 
 
 ```powershell
-# 1. Install via cargo
+# 1. Install directly from this Github Repository
+cargo install --git https://github.com/chandanhastantram/pdforg.git
+
+# 2. Or from Crates.io
 cargo install pdforg
 
-# 2. Launch the application!
+# 3. Launch the application!
 pdf
 ```
-Your browser will automatically open at `http://localhost:3847` to show the application UI.
-
-### Method 2 — Run from Source
-
-```powershell
-# 1. Clone the repository
-git clone https://github.com/chandanhastantram/pdforg.git
-cd pdforg
-
-# 2. Run the app
-cargo run --bin pdf
-```
-
-### Method 3 — Build a Release Binary
-
-```powershell
-cargo build --release --bin pdf
-
-# Your app is now at:
-# target\release\pdf.exe
-```
+Your browser will automatically open a local port (e.g. `http://127.0.0.1:3847`) to show the ultra-responsive application UI.
 
 ---
 
-## 📦 Share With Friends (No Tech Skills Required)
+## 🎯 Groundbreaking PDF Features
 
-### Method 1: Share the `.exe` File (Easiest)
+Unlike traditional PDF tools that rely on the cloud (like iLovePDF) or charge massive subscriptions (like Adobe Acrobat Pro), our PDF suite operates natively on your machine via direct bytestream manipulation using `lopdf`.
 
-1. Build the release binary (`cargo build --release --bin pdf`)
-2. Share the generated `pdf.exe` file with your friend.
-3. They simply double-click it. Nothing else to install, no setup required!
-
-### Method 2: Share a Single Document (`.pdfo`)
-
-1. Open a document in Writer.
-2. Click the **"📤 Share"** button in the toolbar.
-3. Send the `document.pdfo` file to your friend.
-4. Your friend opens PDF Office and drags the `.pdfo` file onto the home screen.
-5. The document appears instantly — no account needed!
-
-### Method 3: Share via Local Network (LAN)
-
-You can host PDF Office for everyone on your Wi-Fi network!
-
-```powershell
-# Start the server explicitly on your local network
-pdf serve --port 3847
-
-# Your friend on the same WiFi opens:
-# http://YOUR_IP:3847
-# (Find your IP using `ipconfig` or `ifconfig`)
-```
+- **🔐 Cryptography & Protection:** Apply authentic AES-128 and RC4-128 bit security. Lock files from printing, editing, or copying natively.
+- **🗜️ True Compression:** Flate2 `DEFLATE` stream recompression dynamically iterates through your PDF objects to massively reduce file sizes without data loss. Detects and downscales `DCTDecode` JPEGs on the fly.
+- **📑 Total Organization:** Split, merge, rotate, extract, or delete pages natively. The engine dynamically reconstructs the internal PDF Catalog and Page Tree without corruption.
+- **🖊️ PostScript Stamping:** Inject Bates numbering, Headers, Footers, and Watermarks directly into the PDF rendering layout.
+- **🧹 Sanitization:** Remove hidden Metadata, JavaScript triggers, Embedded Files, and flatten AcroForm layers permanently.
+- **🖼️ Deep Conversions:** Supports transforming JPEG/PNG into perfectly sized PDF XObjects. 
 
 ---
 
-## 🖥️ CLI Commands
+## 📝 The Office Suite
 
-PDF office ships with a rich CLI (`pdf`) for automated conversions, exports, and spell checking.
-
-| Command | What it does |
-|---------|-------------|
-| `pdf` | Launch the app and open it in your browser |
-| `pdf serve` | Start the server (browser does NOT auto-open) |
-| `pdf open myfile.docx` | Open a Word document |
-| `pdf open myfile.xlsx` | Open an Excel spreadsheet |
-| `pdf export myfile.pdfo --format docx` | Convert to Word format |
-| `pdf export myfile.pdfo --format pdf` | Convert to PDF |
-| `pdf convert input.docx output.pdf` | Convert between supported formats headlessly |
-| `pdf spell myfile.docx` | Check spelling in a document |
-| `pdf version` | Show version information |
-| `pdf update` | Check for updates |
-
-*Run `pdf --help` for deeper sub-command options.*
-
----
-
-## 🎯 Using the App (For Everyone)
-
-### Home Screen
-When you open PDF Office, you'll see the **Home** screen:
-- **📝 New Document** — Creates a blank Word-like document
-- **📊 New Spreadsheet** — Creates a blank Excel-like spreadsheet  
-- **📽️ New Presentation** — Creates a blank slide presentation
-- **Drag & Drop** — Drag any `.docx`, `.xlsx`, `.pptx`, or `.pdf` file directly onto the home screen to open it
-
----
-
-### 📝 Writer (Word Processor)
-1. Click **"📝 New Document"** or **Writer** in the sidebar.
-2. Start typing! The document auto-saves locally every 2 seconds.
-3. Use the **rich ribbon toolbar** to format text, add headers, align content, and export instantly to `.docx` or `.pdf`.
-4. Run the integrated spell check via the **✓ Spell** button.
-5. Hit `Ctrl+P` to print your document natively.
+### Writer (Word Processor)
+- Clean, distraction-free environment that auto-saves locally every 2 seconds.
+- Rich ribbon toolbar for complete formatting control.
+- Exports instantly to `.docx` or directly rasterizes to `.pdf`.
+- Native hunspell-powered Spell check integration.
 
 ### 📊 Sheets (Spreadsheet)
-1. Click **"📊 New Spreadsheet"** or **Sheets** in the sidebar.
-2. Formats and layouts are supported exactly like Excel.
-3. Type formulas starting with `=` (e.g. `=SUM(A1:A10)`). Over 130 native formulas are supported covering Math, Logic, Date, Text, and Lookups (`VLOOKUP`).
-4. Auto-completion prompts will help you build your formulas.
+- Fully featured Grid engine parsing `xlsx` and `csv`.
+- Powerful Rust evaluator that resolves mathematical formulas (`=SUM(A1:A10)`, `VLOOKUP`, etc) instantly.
+- Supports Date, Text, Logic, Math, and Lookup function blocks.
 
 ### 📽️ Slides (Presentation)
-1. Click **"📽️ New Presentation"** or **Slides** in the sidebar.
-2. Manage multiple slides via the left-side thumbnail panel.
-3. Click elements natively in the canvas to adjust and refine styles.
-
-### 📄 PDF Tools
-1. Click **PDF** in the sidebar.
-2. **Merge:** Combine multiple PDFs.
-3. **Split:** Break large PDFs apart.
-4. **Watermark:** Instantly stamp your documents with transparency.
+- Intuitive slide manager.
+- Directly import `.pptx` and adjust internal layouts.
 
 ---
 
-## 📁 Data and Privacy
+## 🗄️ Architecture & Privacy by Design
 
-All your documents are stored natively in a highly efficient internal **SQLite** database resting entirely on your filesystem:
+**Privacy Guarantee:** We believe documents belong to you. The application **will not and cannot** connect to cloud translation, API microservices, or analytics payloads. 
+
+All your documents are stored natively inside a highly optimized **SQLite** database bundle resting entirely on your filesystem:
 
 ```
-Windows: C:\Users\YOUR_NAME\AppData\Local\pdf-office\data.db
-Linux/Mac: ~/.local/share/pdf-office/data.db
+Windows: C:\Users\YOUR_NAME\.pdfo\data.db
+Linux/Mac: ~/.pdfo/data.db
 ```
 
-**Your data safely stays on your computer.** No account required, no telemetry payloads, and absolutely no internet connection needed.
+To bypass extremely strict distribution limitations, PDF Office was massively refactored into a **monolithic unified crate architecture**. Everything from the `axum` local webserver, to the `tiny-skia` SVG rasterizers, to the XML parsing pipelines, to the Rust mathematical evaluators are bundled together under the `pdforg` identity.
 
----
-
-## 📋 Supported File Formats
-
-| Format | Read | Write | Notes |
-|--------|------|-------|-------|
-| `.pdfo` | ✅ | ✅ | Native PDF Office SQLite bundle |
-| `.docx` | ✅ | ✅ | Microsoft Word |
-| `.odt` | ✅ | ✅ | OpenDocument Text |
-| `.xlsx` | ✅ | ✅ | Microsoft Excel |
-| `.pptx` | ✅ | ✅ | Microsoft PowerPoint |
-| `.pdf` | ✅ | ✅ | Portable Document Format |
-| `.rtf` | ✅ | ❌ | Rich Text Format |
-
----
-
-## 🛠️ Architecture
-
-To bypass extremely strict distribution limitations, PDF Office was massively refactored into a **monolithic unified crate architecture**. 
-
-Everything from the `axum` local webserver, to the `tiny-skia` SVG rasterizers, to the `.docx` xml parsing pipelines, to the 130+ Sheets function evaluators are all bundled into the highly modular internal `src/` directory tree under the `pdforg` identity.
-
-| Internal Module | Purpose |
+| Internal Module | Architecture Layer |
 |----------------|---------|
-| `core` | Core structural data types (Document, Cell, Slide) |
-| `writer` | Word processor text block layout and calculation |
-| `sheets` | Spreadsheet engine, dependency graph, formula evaluator |
-| `slides` | Presentation engine and slide rendering |
-| `formats` | File format XML parsers (docx, xlsx, pptx, odt) |
-| `pdf_tools` | Native PDF generation (via `lopdf`) |
-| `render` | SVG/raster renderer integrations |
-| `spell` | Hunspell-compatible spell checking engine |
-| `storage` | SQLite file and state layer |
+| `pdf_tools` | Native PDF compilation (`protect`, `compress`, `manipulator`, `images`) |
+| `writer / sheets / slides` | Application engines and UI logic bridges |
+| `formats` | Complex native XML parsers (`docx`, `xlsx`, `pptx`, `odt`) |
+| `spell` | Hunspell-compatible offline spell checking |
 | `server` | Axum HTTP router + live WebSocket handlers |
 
-### Building and Testing
-
-```powershell
-# Build binaries
-cargo build --release
-
-# Run comprehensive test suite
-cargo test
-
-# Apply lints and automatic fixes
-cargo fix --allow-dirty
-```
-
 ---
 
-*Built with ❤️ in Rust · Local-first · Private by design*
+*Open Source. Private by design. Engineered in Rust.*
