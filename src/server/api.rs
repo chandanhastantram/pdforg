@@ -859,7 +859,8 @@ pub async fn pdf_unlock(multipart: Multipart) -> impl IntoResponse {
     }
 }
 
-// ─── Images to PDF ───────────────────────────────────────────────────────────
+
+// --- Images to PDF ---
 
 pub async fn pdf_images_to_pdf(mut multipart: Multipart) -> impl IntoResponse {
     let mut images: Vec<Vec<u8>> = vec![];
@@ -876,4 +877,140 @@ pub async fn pdf_images_to_pdf(mut multipart: Multipart) -> impl IntoResponse {
         Ok(out) => pdf_response(out, "images.pdf"),
         Err(e)  => err500(e),
     }
+}
+
+// --- Create Version ---
+
+#[derive(Deserialize)]
+pub struct VersionCreate {
+    pub label: Option<String>,
+    pub created_by: Option<String>,
+}
+
+pub async fn create_version(
+    State(state): State<SharedState>,
+    Path(doc_id): Path<Uuid>,
+    Json(body): Json<VersionCreate>,
+) -> ApiResult<serde_json::Value> {
+    let doc = {
+        let store = state.store.lock().await;
+        store.load_document(doc_id).map_err(ApiError::from)?
+    };
+    let snapshot = crate::core::document::DocumentSnapshot {
+        id: uuid::Uuid::new_v4(),
+        document_id: doc_id,
+        version_label: body.label.unwrap_or_else(|| "Untitled Version".into()),
+        created_at: chrono::Utc::now(),
+        created_by: body.created_by.unwrap_or_else(|| "me".into()),
+        document: doc,
+    };
+    let snap_id = snapshot.id;
+    let snap_label = snapshot.version_label.clone();
+    let mut store = state.store.lock().await;
+    store.save_version(&snapshot).map_err(ApiError::from)?;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "id": snap_id,
+        "label": snap_label,
+    })))
+}
+
+// --- Import File ---
+
+pub async fn import_file(
+    State(state): State<SharedState>,
+    mut multipart: axum::extract::Multipart,
+) -> impl IntoResponse {
+    let mut file_bytes: Option<Vec<u8>> = None;
+    let mut filename = String::from("upload");
+
+    while let Ok(Some(field)) = multipart.next_field().await {
+        let name = field.name().unwrap_or("").to_string();
+        if name == "file" {
+            filename = field.file_name().unwrap_or("upload").to_string();
+            if let Ok(b) = field.bytes().await {
+                file_bytes = Some(b.to_vec());
+            }
+        }
+    }
+
+    let bytes = match file_bytes {
+        Some(b) => b,
+        None => return (StatusCode::BAD_REQUEST, "No file uploaded").into_response(),
+    };
+
+    let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
+    let mut doc = match ext.as_str() {
+        "docx" => match crate::formats::docx::parse_docx(&bytes) {
+            Ok(d) => d,
+            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("DOCX parse error: {}", e)).into_response(),
+        },
+        "odt" => match crate::formats::odf::parse_odt(&bytes) {
+            Ok(d) => d,
+            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("ODT parse error: {}", e)).into_response(),
+        },
+        "rtf" => match crate::formats::rtf::parse_rtf(&bytes) {
+            Ok(d) => d,
+            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("RTF parse error: {}", e)).into_response(),
+        },
+        _ => return (StatusCode::BAD_REQUEST, format!("Unsupported format: .{}", ext)).into_response(),
+    };
+
+    if doc.title.is_empty() || doc.title == "Untitled" {
+        doc.title = std::path::Path::new(&filename)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Imported Document")
+            .to_string();
+    }
+
+    let id = doc.id;
+    let title = doc.title.clone();
+    let mut store = state.store.lock().await;
+    if let Err(e) = store.save_document(&doc) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+    }
+    Json(serde_json::json!({ "id": id, "title": title })).into_response()
+}
+
+// --- AI Config ---
+
+pub async fn get_ai_config(
+    State(state): State<SharedState>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.lock().await;
+    let provider: Option<String> = store.get_pref("ai_provider").map_err(ApiError::from)?;
+    let groq_key: Option<String> = store.get_pref("ai_groq_key").map_err(ApiError::from)?;
+    let ollama_url: Option<String> = store.get_pref("ai_ollama_url").map_err(ApiError::from)?;
+    let groq_model: Option<String> = store.get_pref("ai_groq_model").map_err(ApiError::from)?;
+    let ollama_model: Option<String> = store.get_pref("ai_ollama_model").map_err(ApiError::from)?;
+    Ok(Json(serde_json::json!({
+        "provider":     provider.unwrap_or_else(|| "ollama".into()),
+        "groq_key":     groq_key.unwrap_or_default(),
+        "ollama_url":   ollama_url.unwrap_or_else(|| "http://localhost:11434".into()),
+        "groq_model":   groq_model.unwrap_or_else(|| "llama3-8b-8192".into()),
+        "ollama_model": ollama_model.unwrap_or_else(|| "llama3.2".into()),
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct AiConfigBody {
+    pub provider: Option<String>,
+    pub groq_key: Option<String>,
+    pub ollama_url: Option<String>,
+    pub groq_model: Option<String>,
+    pub ollama_model: Option<String>,
+}
+
+pub async fn set_ai_config(
+    State(state): State<SharedState>,
+    Json(body): Json<AiConfigBody>,
+) -> ApiResult<serde_json::Value> {
+    let mut store = state.store.lock().await;
+    if let Some(v) = &body.provider     { store.set_pref("ai_provider",     v).map_err(ApiError::from)?; }
+    if let Some(v) = &body.groq_key     { store.set_pref("ai_groq_key",     v).map_err(ApiError::from)?; }
+    if let Some(v) = &body.ollama_url   { store.set_pref("ai_ollama_url",   v).map_err(ApiError::from)?; }
+    if let Some(v) = &body.groq_model   { store.set_pref("ai_groq_model",   v).map_err(ApiError::from)?; }
+    if let Some(v) = &body.ollama_model { store.set_pref("ai_ollama_model", v).map_err(ApiError::from)?; }
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
