@@ -1,4 +1,4 @@
-# 📄 PDF Office (`pdforg`)
+#  PDF Office (`pdforg`)
 
 [![Website](https://img.shields.io/website?url=https%3A%2F%2Fpdforg.vercel.app&label=Live%20Website&logo=vercel)](https://pdforg.vercel.app/)
 [![Crates.io](https://img.shields.io/crates/v/pdforg.svg)](https://crates.io/crates/pdforg)
@@ -11,7 +11,7 @@ You can find the official download site here: **[pdforg.app](https://pdforg.verc
 
 ---
 
-## 🚀 Quick Download & Install
+##  Quick Download & Install
 
 ### Option 1 — Download Pre-Compiled Binaries
 
@@ -37,20 +37,20 @@ Your browser will automatically open a local port (e.g. `http://127.0.0.1:3847`)
 
 ---
 
-## 🎯 Groundbreaking PDF Features
+##  Groundbreaking PDF Features
 
 Unlike traditional PDF tools that rely on the cloud (like iLovePDF) or charge massive subscriptions (like Adobe Acrobat Pro), our PDF suite operates natively on your machine via direct bytestream manipulation using `lopdf`.
 
-- **🔐 Cryptography & Protection:** Apply authentic AES-128 and RC4-128 bit security. Lock files from printing, editing, or copying natively.
-- **🗜️ True Compression:** Flate2 `DEFLATE` stream recompression dynamically iterates through your PDF objects to massively reduce file sizes without data loss. Detects and downscales `DCTDecode` JPEGs on the fly.
-- **📑 Total Organization:** Split, merge, rotate, extract, or delete pages natively. The engine dynamically reconstructs the internal PDF Catalog and Page Tree without corruption.
-- **🖊️ PostScript Stamping:** Inject Bates numbering, Headers, Footers, and Watermarks directly into the PDF rendering layout.
-- **🧹 Sanitization:** Remove hidden Metadata, JavaScript triggers, Embedded Files, and flatten AcroForm layers permanently.
-- **🖼️ Deep Conversions:** Supports transforming JPEG/PNG into perfectly sized PDF XObjects.
+- ** Cryptography & Protection:** Apply authentic AES-128 and RC4-128 bit security. Lock files from printing, editing, or copying natively.
+- ** True Compression:** Flate2 `DEFLATE` stream recompression dynamically iterates through your PDF objects to massively reduce file sizes without data loss. Detects and downscales `DCTDecode` JPEGs on the fly.
+- ** Total Organization:** Split, merge, rotate, extract, or delete pages natively. The engine dynamically reconstructs the internal PDF Catalog and Page Tree without corruption.
+- ** PostScript Stamping:** Inject Bates numbering, Headers, Footers, and Watermarks directly into the PDF rendering layout.
+- ** Sanitization:** Remove hidden Metadata, JavaScript triggers, Embedded Files, and flatten AcroForm layers permanently.
+- ** Deep Conversions:** Supports transforming JPEG/PNG into perfectly sized PDF XObjects.
 
 ---
 
-## 📝 The Office Suite
+##  The Office Suite
 
 ### Writer (Word Processor)
 
@@ -59,20 +59,20 @@ Unlike traditional PDF tools that rely on the cloud (like iLovePDF) or charge ma
 - Exports instantly to `.docx` or directly rasterizes to `.pdf`.
 - Native hunspell-powered Spell check integration.
 
-### 📊 Sheets (Spreadsheet)
+###  Sheets (Spreadsheet)
 
 - Fully featured Grid engine parsing `xlsx` and `csv`.
 - Powerful Rust evaluator that resolves mathematical formulas (`=SUM(A1:A10)`, `VLOOKUP`, etc) instantly.
 - Supports Date, Text, Logic, Math, and Lookup function blocks.
 
-### 📽️ Slides (Presentation)
+###  Slides (Presentation)
 
 - Intuitive slide manager.
 - Directly import `.pptx` and adjust internal layouts.
 
 ---
 
-## 🗄️ Architecture & Privacy by Design
+##  Architecture & Privacy by Design
 
 **Privacy Guarantee:** We believe documents belong to you. The application **will not and cannot** connect to cloud translation, API microservices, or analytics payloads.
 
