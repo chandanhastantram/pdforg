@@ -248,7 +248,7 @@ fn parse_error(s: &str) -> CellError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::parser::parse_formula;
+    use crate::sheets::parser::parse_formula;
 
     fn eval_str(formula: &str, wb: &Workbook) -> CellValue {
         let expr = parse_formula(formula).unwrap();
@@ -268,7 +268,7 @@ mod tests {
     fn test_eval_sum() {
         let mut wb = Workbook::default();
         let sheet = wb.sheets.get_mut(0).unwrap();
-        use crate::core::Cell;
+        use crate::core::spreadsheet::Cell;
         sheet.set_cell(0, 0, Cell { value: CellValue::Number(1.0), ..Default::default() });
         sheet.set_cell(1, 0, Cell { value: CellValue::Number(2.0), ..Default::default() });
         sheet.set_cell(2, 0, Cell { value: CellValue::Number(3.0), ..Default::default() });

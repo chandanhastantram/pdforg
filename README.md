@@ -1,38 +1,47 @@
+<<<<<<< Updated upstream
 #  PDF Office (`pdforg`)
+=======
+# PDF Office
+>>>>>>> Stashed changes
 
-[![Website](https://img.shields.io/website?url=https%3A%2F%2Fpdforg.vercel.app&label=Live%20Website&logo=vercel)](https://pdforg.vercel.app/)
-[![Crates.io](https://img.shields.io/crates/v/pdforg.svg)](https://crates.io/crates/pdforg)
+A lightning-fast, privacy-first, purely local PDF manipulation tool. Built with Rust and React.
 
-> **Local-first, private, Rust-native office suite — no cloud, no subscriptions, no telemetry.**
+![PDF Office](frontend/public/favicon.svg)
 
-PDF Office is an enterprise-grade suite including a word processor (Writer), spreadsheet editor (Sheets), presentation maker (Slides), and an incredibly powerful, native PDF manipulation backend — **all running completely on your own computer.**
+## Features
 
-You can find the official download site here: **[pdforg.app](https://pdforg.vercel.app/)**
+- **Privacy-First Architecture**: 100% of PDF processing happens locally on your machine. No cloud uploads, no external APIs, no tracking.
+- **20+ PDF Tools**: Merge, split, compress, protect, watermark, rotate, delete pages, extract pages, insert pages, add page numbers, add headers/footers, bates numbering, edit metadata, sanitize, flatten, compare, unlock, and more.
+- **Lightning Fast**: Powered by a robust Rust backend utilizing the `lopdf` engine, handling multi-megabyte files in milliseconds.
+- **Modern UI**: A sleek, dark-mode first interface built with React, Vite, and Tailwind CSS.
+- **No Size Limits**: Process massive 500MB+ PDF documents directly from your local filesystem without arbitrary browser memory limits.
 
----
+## Architecture
 
+<<<<<<< Updated upstream
 ##  Quick Download & Install
+=======
+PDF Office represents a modern decoupled architecture:
+>>>>>>> Stashed changes
 
-### Option 1 — Download Pre-Compiled Binaries
+- **Backend (`Rust / Axum`)**: Pure REST API. Handles routing, file parsing, and complex PDF stream manipulations. Run natively for best performance.
+- **Frontend (`React / TypeScript / Vite`)**: A single-page application focused solely on user experience, API communication, and displaying status feedback.
 
-Visit **[pdforg.vercel.app](https://pdforg.vercel.app/)** to immediately download the standalone executable.
-There are no installation scripts or massive dependencies. A single 30MB executable contains the entire Rust backend, the frontend UI, and all dependencies. Just double-click and run.
+## Getting Started
 
-### Option 2 — Install via Cargo (For Developers)
+### Prerequisites
+- [Rust](https://rustup.rs/) (latest stable)
+- [Node.js](https://nodejs.org/) (v18+)
 
-You can easily compile and install PDF Office directly from source or the central Rust registry.
-
-```powershell
-# 1. Install directly from this Github Repository
-cargo install --git https://github.com/chandanhastantram/pdforg.git
-
-# 2. Or from Crates.io
-cargo install pdforg
-
-# 3. Launch the application!
-pdf
+### 1. Start the Rust Backend
+Open a terminal in the root directory:
+```bash
+# Build and run the server in release mode (for maximum performance)
+cargo run --release -- serve --port 3847 --no-browser
 ```
+*The backend will be available at `http://127.0.0.1:3847`*
 
+<<<<<<< Updated upstream
 Your browser will automatically open a local port (e.g. `http://127.0.0.1:3847`) to show the ultra-responsive application UI.
 
 ---
@@ -81,18 +90,24 @@ All your documents are stored natively inside a highly optimized **SQLite** data
 ```
 Windows: C:\Users\YOUR_NAME\.pdfo\data.db
 Linux/Mac: ~/.pdfo/data.db
+=======
+### 2. Start the Frontend Dev Server
+Open a second terminal:
+```bash
+cd frontend
+npm install
+npm run dev
+>>>>>>> Stashed changes
 ```
+*The frontend will launch at `http://localhost:5173`*
 
-To bypass extremely strict distribution limitations, PDF Office was massively refactored into a **monolithic unified crate architecture**. Everything from the `axum` local webserver, to the `tiny-skia` SVG rasterizers, to the XML parsing pipelines, to the Rust mathematical evaluators are bundled together under the `pdforg` identity.
+## Recent Improvements
 
-| Internal Module            | Architecture Layer                                                      |
-| -------------------------- | ----------------------------------------------------------------------- |
-| `pdf_tools`                | Native PDF compilation (`protect`, `compress`, `manipulator`, `images`) |
-| `writer / sheets / slides` | Application engines and UI logic bridges                                |
-| `formats`                  | Complex native XML parsers (`docx`, `xlsx`, `pptx`, `odt`)              |
-| `spell`                    | Hunspell-compatible offline spell checking                              |
-| `server`                   | Axum HTTP router + live WebSocket handlers                              |
+- **Fully Decoupled Stack**: Transitioned from a monolithic server to a distinct Rust API backend and Vite/React frontend.
+- **Large File Support**: Overhauled the multipart form data handlers to support payloads up to 500MB, removing old bottleneck limits.
+- **Memory Safety & Stability**: Addressed edge-case panics in the splitting mechanisms (handling single-page PDFs gracefully) and improved runtime stability by utilizing `panic="unwind"`.
+- **Attribute Preservation**: Added intelligent inheritance resolution ensuring that manipulated PDFs retain their `MediaBox`, `CropBox`, and `Resources` attributes, preventing blank page rendering issues during merges and extractions.
 
----
+## License
 
-_Open Source. Private by design. Engineered in Rust._
+This project is intended for personal and local use.

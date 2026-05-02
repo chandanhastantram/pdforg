@@ -456,7 +456,10 @@ pub async fn pdf_split(multipart: Multipart) -> impl IntoResponse {
 
     let ranges: Vec<crate::pdf_tools::PageRange> = match method {
         "bypage" => {
-            let n: usize = value.parse().unwrap_or(1).clamp(1, total - 1);
+            if total < 2 {
+                return err400("Cannot split a PDF with fewer than 2 pages");
+            }
+            let n: usize = value.parse().unwrap_or(1).max(1).min(total - 1);
             vec![
                 crate::pdf_tools::PageRange::range(1, n),
                 crate::pdf_tools::PageRange::range(n + 1, total),
@@ -473,6 +476,9 @@ pub async fn pdf_split(multipart: Multipart) -> impl IntoResponse {
             vec![crate::pdf_tools::PageRange::range(first, last)]
         }
         _ => {
+            if total < 2 {
+                return err400("Cannot split a PDF with fewer than 2 pages");
+            }
             vec![crate::pdf_tools::PageRange::range(1, total / 2),
                  crate::pdf_tools::PageRange::range(total / 2 + 1, total)]
         }

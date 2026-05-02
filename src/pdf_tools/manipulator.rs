@@ -18,6 +18,10 @@ pub fn merge_pdfs(inputs: &[&[u8]]) -> Result<Vec<u8>, PdfError> {
         let mut doc = Document::load_mem(pdf_bytes)?;
         doc.decompress();
 
+        // Fix blank pages: PDF pages can inherit Resources/MediaBox from their parent Pages node.
+        // Materialize these directly onto the page dictionary before we reparent them.
+        materialize_inherited_attributes(&mut doc);
+
         let offset = result.objects.len() as u32 + 100;
         let mut id_map: BTreeMap<ObjectId, ObjectId> = BTreeMap::new();
         let original_ids: Vec<ObjectId> = doc.objects.keys().copied().collect();
@@ -133,6 +137,7 @@ pub fn delete_pages(input: &[u8], pages_to_delete: &[usize]) -> Result<Vec<u8>, 
 fn extract_pages_internal(input: &[u8], page_nums: &[usize]) -> Result<Vec<u8>, PdfError> {
     let mut src = Document::load_mem(input)?;
     src.decompress();
+    materialize_inherited_attributes(&mut src);
 
     let all_pages = src.get_pages();
     let total     = all_pages.len();
@@ -435,7 +440,7 @@ pub fn redact_regions(input: &[u8], regions: &[RedactRegion]) -> Result<Vec<u8>,
 
 // ─── Object remapping ──────────────────────────────────────────────────────
 
-pub(crate) fn remap_obj(obj: &Object, id_map: &BTreeMap<ObjectId, ObjectId>) -> Object {
+pub fn remap_obj(obj: &Object, id_map: &BTreeMap<ObjectId, ObjectId>) -> Object {
     match obj {
         Object::Reference(id) => {
             if let Some(&new_id) = id_map.get(id) { Object::Reference(new_id) }
@@ -462,5 +467,47 @@ pub(crate) fn remap_obj(obj: &Object, id_map: &BTreeMap<ObjectId, ObjectId>) -> 
             })
         }
         other => other.clone(),
+    }
+}
+
+// ─── Inherited Attributes Helper ───────────────────────────────────────────
+
+fn resolve_inherited(doc: &Document, page_id: ObjectId, key: &[u8]) -> Option<Object> {
+    let mut current_id = page_id;
+    while let Some(Object::Dictionary(dict)) = doc.objects.get(&current_id) {
+        if let Ok(obj) = dict.get(key) {
+            return Some(obj.clone());
+        }
+        if let Ok(Object::Reference(parent_id)) = dict.get(b"Parent") {
+            current_id = *parent_id;
+        } else {
+            break;
+        }
+    }
+    None
+}
+
+fn materialize_inherited_attributes(doc: &mut Document) {
+    let page_ids: Vec<ObjectId> = doc.get_pages().values().copied().collect();
+    for page_id in page_ids {
+        let media_box = resolve_inherited(doc, page_id, b"MediaBox");
+        let crop_box = resolve_inherited(doc, page_id, b"CropBox");
+        let resources = resolve_inherited(doc, page_id, b"Resources");
+        let rotate = resolve_inherited(doc, page_id, b"Rotate");
+
+        if let Some(Object::Dictionary(ref mut dict)) = doc.objects.get_mut(&page_id) {
+            if !dict.has(b"MediaBox") {
+                if let Some(mb) = media_box { dict.set("MediaBox", mb); }
+            }
+            if !dict.has(b"Resources") {
+                if let Some(res) = resources { dict.set("Resources", res); }
+            }
+            if !dict.has(b"CropBox") {
+                if let Some(cb) = crop_box { dict.set("CropBox", cb); }
+            }
+            if !dict.has(b"Rotate") {
+                if let Some(rot) = rotate { dict.set("Rotate", rot); }
+            }
+        }
     }
 }

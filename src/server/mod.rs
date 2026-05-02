@@ -1,9 +1,8 @@
 pub mod api;
-pub mod assets;
 pub mod protocol;
 pub mod ws;
 
-use axum::{Router, routing::{get, post, put, delete}};
+use axum::{Router, routing::{get, post, put, delete}, extract::DefaultBodyLimit};
 use tower_http::cors::CorsLayer;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -37,9 +36,6 @@ pub async fn start_server(port: u16, data_dir: std::path::PathBuf) -> Result<(),
 
 pub fn build_router(state: SharedState) -> Router {
     Router::new()
-        .route("/", get(assets::serve_index))
-        .route("/download", get(assets::serve_download))
-        .route("/assets/*path", get(assets::serve_asset))
         .route("/api/documents", get(api::list_documents))
         .route("/api/documents", post(api::create_document))
         .route("/api/documents/:id", get(api::get_document))
@@ -82,6 +78,7 @@ pub fn build_router(state: SharedState) -> Router {
         .route("/api/pdf/unlock",        post(api::pdf_unlock))
         .route("/api/pdf/images-to-pdf", post(api::pdf_images_to_pdf))
         .route("/ws/:doc_id", get(ws::ws_handler))
+        .layer(DefaultBodyLimit::max(500 * 1024 * 1024)) // 500 MB max upload
         .layer(CorsLayer::permissive())
         .with_state(state)
 }

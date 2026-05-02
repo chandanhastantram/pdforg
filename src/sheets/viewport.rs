@@ -85,7 +85,8 @@ impl RangeExt for crate::core::spreadsheet::CellRange {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{Sheet, Cell, CellValue};
+    use crate::core::{Sheet, CellValue};
+    use crate::core::spreadsheet::Cell;
 
     #[test]
     fn test_render_viewport() {
