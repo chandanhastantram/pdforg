@@ -165,6 +165,7 @@ pub fn encrypt_pdf(
 ) -> Result<Vec<u8>, PdfError> {
     let mut doc = Document::load_mem(input)
         .map_err(|e| PdfError::Parse(e.to_string()))?;
+    crate::pdf_tools::safe_decompress(&mut doc);
 
     let key_len = 16usize; // 128-bit
     let file_id = random_file_id();
@@ -253,7 +254,7 @@ pub fn decrypt_pdf(input: &[u8], password: &str) -> Result<Vec<u8>, PdfError> {
     // but for encrypted files we reload with decompress which strips the encrypt dict.
     let mut doc = Document::load_mem(input)
         .map_err(|e| PdfError::Parse(format!("Cannot decrypt: {e}")))?;
-    doc.decompress();
+    crate::pdf_tools::safe_decompress(&mut doc);
     // Remove the /Encrypt entry to produce an unencrypted PDF
     doc.trailer.remove(b"Encrypt");
     let mut buf = Vec::new();

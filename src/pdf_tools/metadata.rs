@@ -25,7 +25,8 @@ fn obj_to_str(obj: &Object) -> Option<String> {
 
 /// Extract document info metadata from a PDF
 pub fn get_metadata(input: &[u8]) -> Result<PdfMetadata, PdfError> {
-    let doc = Document::load_mem(input)?;
+    let mut doc = Document::load_mem(input)?;
+    crate::pdf_tools::safe_decompress(&mut doc);
     let mut meta = PdfMetadata::default();
 
     if let Ok(Object::Reference(info_id)) = doc.trailer.get(b"Info") {
@@ -55,6 +56,7 @@ fn str_obj(s: &str) -> Object {
 /// Write document info metadata to a PDF
 pub fn set_metadata(input: &[u8], meta: &PdfMetadata) -> Result<Vec<u8>, PdfError> {
     let mut doc = Document::load_mem(input)?;
+    crate::pdf_tools::safe_decompress(&mut doc);
 
     // Find or create /Info dictionary
     let now = chrono::Local::now().format("D:%Y%m%d%H%M%S").to_string();
@@ -112,6 +114,7 @@ impl SanitizeOptions {
 /// Strip hidden data from a PDF
 pub fn sanitize_pdf(input: &[u8], opts: &SanitizeOptions) -> Result<Vec<u8>, PdfError> {
     let mut doc = Document::load_mem(input)?;
+    crate::pdf_tools::safe_decompress(&mut doc);
 
     if opts.strip_metadata {
         // Remove /Info dictionary

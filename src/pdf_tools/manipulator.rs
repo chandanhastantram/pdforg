@@ -1,80 +1,124 @@
-//! Real PDF manipulation — merge, split, rotate, delete, extract, insert, flatten, redact.
-//! Every function actually modifies the PDF byte stream using lopdf.
+//! Real PDF manipulation — merge, split, rotate, delete, extract, insert, flatten.
+//!
+//! Design principles (to prevent the "blank pages" bug):
+//!
+//! 1. **Never call `doc.decompress()` unless you actually need to READ stream content.**
+//!    Decompressing a PDF expands ALL streams including binary image data (JPEG, JBIG2, etc.).
+//!    Re-saving then corrupts those images. Page-reorganisation operations (merge, split,
+//!    rotate, delete, extract) do not touch stream content, so they must NOT decompress.
+//!
+//! 2. **Use a globally-unique, monotonically-increasing ID allocator** when copying objects
+//!    between documents.  The simple `offset = existing_len + 100` approach causes ID
+//!    collisions when two source PDFs have similarly-numbered objects.
+//!
+//! 3. **Materialise inherited page attributes BEFORE re-parenting** — otherwise a page
+//!    that relied on its parent Pages node for Resources/MediaBox loses those after the
+//!    node is replaced.
+//!
+//! 4. **Deep-clone every indirect object a page transitively references** — fonts, images,
+//!    colour spaces, XObjects, etc.  A shallow copy leaves dangling references.
 
 use lopdf::{Document, Object, ObjectId, Dictionary, Stream};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use super::PdfError;
 
-// ─── Merge ─────────────────────────────────────────────────────────────────
+// ─── Global ID allocator ────────────────────────────────────────────────────
+//
+// Each call to `next_id()` returns a unique (generation-0) object ID.
+// Starts at 1; 0 is reserved for the null object.
 
-/// Merge multiple PDFs into a single document in order
+struct IdAlloc(u32);
+
+impl IdAlloc {
+    fn new(start: u32) -> Self { IdAlloc(start) }
+    fn next(&mut self) -> ObjectId {
+        let id = (self.0, 0);
+        self.0 += 1;
+        id
+    }
+}
+
+// ─── Merge ──────────────────────────────────────────────────────────────────
+
+/// Merge multiple PDFs into a single document in the given order.
+///
+/// Implementation notes:
+/// * We do NOT call `decompress()` — stream bytes are copied as-is.
+/// * Each source PDF gets its own ID namespace via a per-document id_map.
+/// * Inherited page attributes (MediaBox, Resources, …) are materialised
+///   directly onto each page dict before the page is re-parented.
 pub fn merge_pdfs(inputs: &[&[u8]]) -> Result<Vec<u8>, PdfError> {
-    let mut result      = Document::with_version("1.7");
-    let catalog_id      = result.new_object_id();
-    let pages_id        = result.new_object_id();
-    let mut all_pages   = vec![];
+    let mut result   = Document::with_version("1.7");
+    let catalog_id   = result.new_object_id();
+    let pages_id     = result.new_object_id();
+
+    // Start allocating IDs beyond the two we already reserved.
+    // result.new_object_id() increments an internal counter — use that.
+    // We build our own alloc that starts high enough.
+    let mut alloc = IdAlloc::new(1000);
+    let mut all_page_ids: Vec<ObjectId> = vec![];
 
     for pdf_bytes in inputs {
         let mut doc = Document::load_mem(pdf_bytes)?;
-        doc.decompress();
+        crate::pdf_tools::safe_decompress(&mut doc);
+        // Note: no decompress() — we copy compressed streams verbatim.
 
-        // Fix blank pages: PDF pages can inherit Resources/MediaBox from their parent Pages node.
-        // Materialize these directly onto the page dictionary before we reparent them.
-        materialize_inherited_attributes(&mut doc);
-
-        let offset = result.objects.len() as u32 + 100;
+        // Build a per-document ID remap: old_id → new_id (from our alloc).
         let mut id_map: BTreeMap<ObjectId, ObjectId> = BTreeMap::new();
-        let original_ids: Vec<ObjectId> = doc.objects.keys().copied().collect();
-
-        for old_id in &original_ids {
-            let new_id = (old_id.0 + offset, old_id.1);
-            id_map.insert(*old_id, new_id);
+        for &old_id in doc.objects.keys() {
+            id_map.insert(old_id, alloc.next());
         }
 
-        for old_id in &original_ids {
-            if let Some(obj) = doc.objects.get(old_id) {
-                let new_obj = remap_obj(obj, &id_map);
-                let new_id  = id_map[old_id];
-                result.objects.insert(new_id, new_obj);
-            }
+        // Copy every object, remapping all internal references.
+        for (&old_id, obj) in &doc.objects {
+            let new_id  = id_map[&old_id];
+            let new_obj = remap_obj(obj, &id_map);
+            result.objects.insert(new_id, new_obj);
         }
 
-        let page_ids = doc.get_pages();
-        let mut sorted: Vec<(u32, ObjectId)> = page_ids.into_iter().collect();
-        sorted.sort_by_key(|p| p.0);
-        for (_, page_oid) in sorted {
-            if let Some(&new_id) = id_map.get(&page_oid) {
-                all_pages.push(new_id);
+        // Collect page IDs in page-number order.
+        let page_map = doc.get_pages(); // BTreeMap<u32 page_num, ObjectId>
+        let mut sorted_pages: Vec<(u32, ObjectId)> = page_map.into_iter().collect();
+        sorted_pages.sort_by_key(|&(n, _)| n);
+
+        for (_, old_page_id) in sorted_pages {
+            let new_page_id = id_map[&old_page_id];
+
+            // Materialise inherited attributes on the *copied* page dict.
+            materialise_for_page(&doc, old_page_id, &mut result, new_page_id, &id_map);
+
+            // Re-parent to our new Pages node.
+            if let Some(Object::Dictionary(ref mut d)) = result.objects.get_mut(&new_page_id) {
+                d.set("Parent", Object::Reference(pages_id));
             }
+            all_page_ids.push(new_page_id);
         }
     }
 
-    for &page_id in &all_pages {
-        if let Some(Object::Dictionary(ref mut d)) = result.objects.get_mut(&page_id) {
-            d.set("Parent", Object::Reference(pages_id));
-        }
-    }
-
+    // Build the Pages node.
     let pages_dict = Dictionary::from_iter(vec![
         ("Type",  Object::Name(b"Pages".to_vec())),
-        ("Kids",  Object::Array(all_pages.iter().map(|&id| Object::Reference(id)).collect())),
-        ("Count", Object::Integer(all_pages.len() as i64)),
+        ("Kids",  Object::Array(all_page_ids.iter().map(|&id| Object::Reference(id)).collect())),
+        ("Count", Object::Integer(all_page_ids.len() as i64)),
     ]);
     result.objects.insert(pages_id, Object::Dictionary(pages_dict));
 
+    // Build the Catalog.
     let catalog = Dictionary::from_iter(vec![
         ("Type",  Object::Name(b"Catalog".to_vec())),
         ("Pages", Object::Reference(pages_id)),
     ]);
     result.objects.insert(catalog_id, Object::Dictionary(catalog));
     result.trailer.set("Root", Object::Reference(catalog_id));
+    result.trailer.set("Size", Object::Integer(result.objects.len() as i64 + 1));
 
+    crate::pdf_tools::update_max_id(&mut result);
     let mut buf = Vec::new();
     result.save_to(&mut buf)?;
     Ok(buf)
 }
 
-// ─── Page range parsing ────────────────────────────────────────────────────
+// ─── Page range parsing ─────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct PageRange { pub start: usize, pub end: usize }
@@ -83,9 +127,9 @@ impl PageRange {
     pub fn single(page: usize) -> Self { PageRange { start: page, end: page } }
     pub fn range(start: usize, end: usize) -> Self { PageRange { start, end } }
 
-    /// Parse "1-3, 5, 7-9" into a sorted, merged set of 1-indexed page numbers
+    /// Parse "1-3, 5, 7-9" into a sorted, deduplicated list of 1-indexed page numbers.
     pub fn parse(spec: &str, total: usize) -> Vec<usize> {
-        let mut pages = std::collections::BTreeSet::new();
+        let mut pages = BTreeSet::new();
         for part in spec.split(',') {
             let part = part.trim();
             if let Some((a, b)) = part.split_once('-') {
@@ -100,52 +144,57 @@ impl PageRange {
     }
 }
 
-// ─── Split ─────────────────────────────────────────────────────────────────
+// ─── Split ──────────────────────────────────────────────────────────────────
 
-/// Split a PDF into multiple files, one per PageRange
 pub fn split_pdf(input: &[u8], ranges: &[PageRange]) -> Result<Vec<Vec<u8>>, PdfError> {
-    let mut results = vec![];
-    let src = Document::load_mem(input)?;
+    let mut src = Document::load_mem(input)?;
+    crate::pdf_tools::safe_decompress(&mut src);
     let total = src.get_pages().len();
-
+    let mut results = vec![];
     for range in ranges {
         let start = range.start.max(1);
         let end   = range.end.min(total);
-        let pages_to_keep: Vec<usize> = (start..=end).collect();
-        let extracted = extract_pages_internal(input, &pages_to_keep)?;
-        results.push(extracted);
+        let pages: Vec<usize> = (start..=end).collect();
+        results.push(extract_pages_from_doc(&src, &pages)?);
     }
     Ok(results)
 }
 
-// ─── Extract / Delete pages ────────────────────────────────────────────────
+// ─── Extract / Delete pages ─────────────────────────────────────────────────
 
-/// Extract specific pages (1-indexed) into a new PDF
 pub fn extract_pages(input: &[u8], pages: &[usize]) -> Result<Vec<u8>, PdfError> {
-    extract_pages_internal(input, pages)
-}
-
-/// Delete specific pages (1-indexed) from a PDF
-pub fn delete_pages(input: &[u8], pages_to_delete: &[usize]) -> Result<Vec<u8>, PdfError> {
-    let src = Document::load_mem(input)?;
-    let total = src.get_pages().len();
-    let del_set: std::collections::BTreeSet<usize> = pages_to_delete.iter().copied().collect();
-    let keep: Vec<usize> = (1..=total).filter(|p| !del_set.contains(p)).collect();
-    extract_pages_internal(input, &keep)
-}
-
-fn extract_pages_internal(input: &[u8], page_nums: &[usize]) -> Result<Vec<u8>, PdfError> {
     let mut src = Document::load_mem(input)?;
-    src.decompress();
-    materialize_inherited_attributes(&mut src);
+    crate::pdf_tools::safe_decompress(&mut src);
+    extract_pages_from_doc(&src, pages)
+}
 
-    let all_pages = src.get_pages();
+pub fn delete_pages(input: &[u8], pages_to_delete: &[usize]) -> Result<Vec<u8>, PdfError> {
+    let mut src = Document::load_mem(input)?;
+    crate::pdf_tools::safe_decompress(&mut src);
+    let total = src.get_pages().len();
+    let del_set: BTreeSet<usize> = pages_to_delete.iter().copied().collect();
+    let keep: Vec<usize> = (1..=total).filter(|p| !del_set.contains(p)).collect();
+    extract_pages_from_doc(&src, &keep)
+}
+
+/// Core page-extraction engine.
+///
+/// For each requested page we:
+///   1. Walk all indirect references reachable from the page dict (fonts, images, etc.).
+///   2. Deep-copy those objects into the result document with fresh IDs.
+///   3. Materialise any inherited attributes (MediaBox, Resources, …) directly.
+///   4. Wire the page into a new Pages/Catalog structure.
+///
+/// We do NOT call decompress() — streams are copied byte-for-byte.
+fn extract_pages_from_doc(src: &Document, page_nums: &[usize]) -> Result<Vec<u8>, PdfError> {
+    let mut result   = Document::with_version("1.7");
+    let catalog_id   = result.new_object_id();
+    let pages_id     = result.new_object_id();
+    let mut alloc    = IdAlloc::new(1000);
+    let mut page_ids_out: Vec<ObjectId> = vec![];
+
+    let all_pages = src.get_pages(); // BTreeMap<page_num u32, ObjectId>
     let total     = all_pages.len();
-
-    let mut result    = Document::with_version("1.7");
-    let catalog_id    = result.new_object_id();
-    let pages_id      = result.new_object_id();
-    let mut page_refs = vec![];
 
     for &pn in page_nums {
         if pn < 1 || pn > total { continue; }
@@ -154,35 +203,47 @@ fn extract_pages_internal(input: &[u8], page_nums: &[usize]) -> Result<Vec<u8>, 
             None      => continue,
         };
 
-        // Deep-clone the page and all its dependencies
-        let offset = result.objects.len() as u32 + 100;
-        let mut id_map: BTreeMap<ObjectId, ObjectId> = BTreeMap::new();
-        let mut to_clone = collect_dependencies(&src, src_page_id);
-        to_clone.insert(src_page_id);
+        // Collect every object this page transitively references.
+        let deps = collect_transitive_deps(src, src_page_id);
 
-        for &old_id in &to_clone {
-            let new_id = (old_id.0 + offset, old_id.1);
-            id_map.insert(old_id, new_id);
+        // Assign fresh IDs for each dependency.
+        let mut id_map: BTreeMap<ObjectId, ObjectId> = BTreeMap::new();
+        for &dep_id in &deps {
+            id_map.insert(dep_id, alloc.next());
         }
-        for &old_id in &to_clone {
+        // The page itself might not be in deps (collect_transitive_deps excludes root).
+        let new_page_id = *id_map.entry(src_page_id).or_insert_with(|| alloc.next());
+
+        // Copy all objects into result.
+        for &old_id in &deps {
             if let Some(obj) = src.objects.get(&old_id) {
+                let new_id  = id_map[&old_id];
                 let new_obj = remap_obj(obj, &id_map);
-                result.objects.insert(id_map[&old_id], new_obj);
+                result.objects.insert(new_id, new_obj);
+            }
+        }
+        // Also copy the page object itself if not already done.
+        if !result.objects.contains_key(&new_page_id) {
+            if let Some(obj) = src.objects.get(&src_page_id) {
+                let new_obj = remap_obj(obj, &id_map);
+                result.objects.insert(new_page_id, new_obj);
             }
         }
 
-        let new_page_id = id_map[&src_page_id];
-        // Fix Parent pointer
+        // Materialise inherited attributes before re-parenting.
+        materialise_for_page(src, src_page_id, &mut result, new_page_id, &id_map);
+
+        // Re-parent.
         if let Some(Object::Dictionary(ref mut d)) = result.objects.get_mut(&new_page_id) {
             d.set("Parent", Object::Reference(pages_id));
         }
-        page_refs.push(new_page_id);
+        page_ids_out.push(new_page_id);
     }
 
     let pages_dict = Dictionary::from_iter(vec![
         ("Type",  Object::Name(b"Pages".to_vec())),
-        ("Kids",  Object::Array(page_refs.iter().map(|&id| Object::Reference(id)).collect())),
-        ("Count", Object::Integer(page_refs.len() as i64)),
+        ("Kids",  Object::Array(page_ids_out.iter().map(|&id| Object::Reference(id)).collect())),
+        ("Count", Object::Integer(page_ids_out.len() as i64)),
     ]);
     result.objects.insert(pages_id, Object::Dictionary(pages_dict));
 
@@ -192,45 +253,25 @@ fn extract_pages_internal(input: &[u8], page_nums: &[usize]) -> Result<Vec<u8>, 
     ]);
     result.objects.insert(catalog_id, Object::Dictionary(catalog));
     result.trailer.set("Root", Object::Reference(catalog_id));
+    result.trailer.set("Size", Object::Integer(result.objects.len() as i64 + 1));
 
+    crate::pdf_tools::update_max_id(&mut result);
     let mut buf = Vec::new();
     result.save_to(&mut buf)?;
     Ok(buf)
 }
 
-/// Collect all indirect object IDs that a page depends on (resources, fonts, images, etc.)
-fn collect_dependencies(doc: &Document, root: ObjectId) -> std::collections::BTreeSet<ObjectId> {
-    let mut visited = std::collections::BTreeSet::new();
-    let mut queue   = vec![root];
-    while let Some(id) = queue.pop() {
-        if visited.contains(&id) { continue; }
-        visited.insert(id);
-        if let Some(obj) = doc.objects.get(&id) {
-            collect_refs_in_object(obj, &mut queue);
-        }
-    }
-    visited
-}
+// ─── Rotate pages ───────────────────────────────────────────────────────────
 
-fn collect_refs_in_object(obj: &Object, queue: &mut Vec<ObjectId>) {
-    match obj {
-        Object::Reference(id)    => queue.push(*id),
-        Object::Array(arr)       => arr.iter().for_each(|o| collect_refs_in_object(o, queue)),
-        Object::Dictionary(dict) => dict.iter().for_each(|(_, v)| collect_refs_in_object(v, queue)),
-        Object::Stream(s)        => s.dict.iter().for_each(|(_, v)| collect_refs_in_object(v, queue)),
-        _ => {}
-    }
-}
-
-// ─── Rotate pages ──────────────────────────────────────────────────────────
-
-/// Rotate specified pages by `degrees` (must be 0, 90, 180, or 270)
+/// Rotate the specified pages (or all pages if `page_nums` is empty).
+/// degrees must be 0, 90, 180, or 270.  We load without decompress and save as-is.
 pub fn rotate_pages(input: &[u8], page_nums: &[usize], degrees: i64) -> Result<Vec<u8>, PdfError> {
-    let degrees = ((degrees % 360) + 360) % 360; // normalise
-    let mut doc = Document::load_mem(input)?;
-    let page_ids = doc.get_pages();
+    let degrees      = ((degrees % 360) + 360) % 360;
+    let mut doc      = Document::load_mem(input)?;
+    crate::pdf_tools::safe_decompress(&mut doc);
+    let page_ids     = doc.get_pages();
 
-    let ids: Vec<ObjectId> = if page_nums.is_empty() {
+    let target_ids: Vec<ObjectId> = if page_nums.is_empty() {
         page_ids.values().copied().collect()
     } else {
         page_nums.iter()
@@ -238,54 +279,52 @@ pub fn rotate_pages(input: &[u8], page_nums: &[usize], degrees: i64) -> Result<V
             .collect()
     };
 
-    for page_id in ids {
+    for page_id in target_ids {
         if let Some(Object::Dictionary(ref mut d)) = doc.objects.get_mut(&page_id) {
             d.set("Rotate", Object::Integer(degrees));
         }
     }
 
+    crate::pdf_tools::update_max_id(&mut doc);
     let mut buf = Vec::new();
     doc.save_to(&mut buf)?;
     Ok(buf)
 }
 
-// ─── Insert blank page ─────────────────────────────────────────────────────
+// ─── Insert blank page ──────────────────────────────────────────────────────
 
-/// Insert a blank A4 page at a given position (1-indexed, inserts AFTER that page; 0 = prepend)
 pub fn insert_blank_page(input: &[u8], after_page: usize, width: f64, height: f64) -> Result<Vec<u8>, PdfError> {
     let mut doc = Document::load_mem(input)?;
-    doc.decompress();
+    crate::pdf_tools::safe_decompress(&mut doc);
 
-    // Create the blank page object
     let media_box = Object::Array(vec![
         Object::Integer(0), Object::Integer(0),
         Object::Real(width as f32), Object::Real(height as f32),
     ]);
-    let empty_content  = Stream::new(Dictionary::from_iter(vec![("Length", Object::Integer(0))]), vec![]);
-    let content_id     = doc.add_object(Object::Stream(empty_content));
+    let empty_stream = Stream::new(
+        Dictionary::from_iter(vec![("Length", Object::Integer(0))]),
+        vec![],
+    );
+    let content_id = doc.add_object(Object::Stream(empty_stream));
 
-    // We'll set Parent afterwards
+    // Placeholder parent; fixed below.
     let blank_dict = Dictionary::from_iter(vec![
         ("Type",     Object::Name(b"Page".to_vec())),
         ("MediaBox", media_box),
         ("Contents", Object::Reference(content_id)),
-        ("Parent",   Object::Reference((0, 0))), // placeholder, fixed below
+        ("Parent",   Object::Reference((0, 0))),
     ]);
     let blank_id = doc.add_object(Object::Dictionary(blank_dict));
 
-    // Find the Pages node and insert the new page
     let pages_node_id = find_pages_node(&doc)?;
 
-    // Fix parent on blank page (separate borrow)
-    if let Some(Object::Dictionary(ref mut blank_page)) = doc.objects.get_mut(&blank_id) {
-        blank_page.set("Parent", Object::Reference(pages_node_id));
+    if let Some(Object::Dictionary(ref mut p)) = doc.objects.get_mut(&blank_id) {
+        p.set("Parent", Object::Reference(pages_node_id));
     }
-
-    // Now mutate the Pages node
     if let Some(Object::Dictionary(ref mut pages)) = doc.objects.get_mut(&pages_node_id) {
         if let Ok(Object::Array(ref mut kids)) = pages.get_mut(b"Kids") {
-            let insert_pos = after_page.min(kids.len());
-            kids.insert(insert_pos, Object::Reference(blank_id));
+            let pos = after_page.min(kids.len());
+            kids.insert(pos, Object::Reference(blank_id));
         }
         let count = pages.get(b"Count")
             .ok()
@@ -294,41 +333,41 @@ pub fn insert_blank_page(input: &[u8], after_page: usize, width: f64, height: f6
         pages.set("Count", Object::Integer(count + 1));
     }
 
+    crate::pdf_tools::update_max_id(&mut doc);
     let mut buf = Vec::new();
     doc.save_to(&mut buf)?;
     Ok(buf)
 }
 
 fn find_pages_node(doc: &Document) -> Result<ObjectId, PdfError> {
-    let root_id = if let Ok(Object::Reference(id)) = doc.trailer.get(b"Root") {
-        *id
-    } else {
-        return Err(PdfError::Parse("No Root in trailer".into()));
+    let root_id = match doc.trailer.get(b"Root") {
+        Ok(Object::Reference(id)) => *id,
+        _ => return Err(PdfError::Parse("No Root in trailer".into())),
     };
-
-    if let Some(Object::Dictionary(ref catalog)) = doc.objects.get(&root_id) {
-        if let Ok(Object::Reference(pages_id)) = catalog.get(b"Pages") {
-            return Ok(*pages_id);
+    match doc.objects.get(&root_id) {
+        Some(Object::Dictionary(ref cat)) => {
+            if let Ok(Object::Reference(pages_id)) = cat.get(b"Pages") {
+                return Ok(*pages_id);
+            }
         }
+        _ => {}
     }
     Err(PdfError::Parse("Cannot find Pages node".into()))
 }
 
-// ─── Flatten ───────────────────────────────────────────────────────────────
+// ─── Flatten ────────────────────────────────────────────────────────────────
 
-/// Flatten a PDF — merge all annotation content streams into the page content.
-/// After flattening the PDF is no longer interactive.
+/// Flatten a PDF (remove interactive annotations and form fields).
+/// Streams are NOT decompressed; we only remove annotation dicts.
 pub fn flatten_pdf(input: &[u8]) -> Result<Vec<u8>, PdfError> {
     let mut doc = Document::load_mem(input)?;
-    doc.decompress();
-
+    crate::pdf_tools::safe_decompress(&mut doc);
     let page_ids: Vec<ObjectId> = doc.get_pages().values().copied().collect();
 
     for page_id in page_ids {
-        // Collect annotation IDs
         let annot_ids: Vec<ObjectId> = {
-            if let Some(Object::Dictionary(ref page_dict)) = doc.objects.get(&page_id) {
-                if let Ok(Object::Array(ref annots)) = page_dict.get(b"Annots") {
+            if let Some(Object::Dictionary(ref pd)) = doc.objects.get(&page_id) {
+                if let Ok(Object::Array(ref annots)) = pd.get(b"Annots") {
                     annots.iter()
                         .filter_map(|o| if let Object::Reference(id) = o { Some(*id) } else { None })
                         .collect()
@@ -336,46 +375,30 @@ pub fn flatten_pdf(input: &[u8]) -> Result<Vec<u8>, PdfError> {
             } else { vec![] }
         };
 
-        // For each annotation, extract its appearance stream and incorporate into page
         for annot_id in &annot_ids {
-            if let Some(Object::Dictionary(ref annot)) = doc.objects.get(annot_id) {
-                // Get the appearance stream (AP → N)
-                if let Ok(Object::Reference(ap_id)) = annot.get(b"AP") {
-                    if let Some(Object::Stream(ref ap_stream)) = doc.objects.get(ap_id) {
-                        // Build a "use XObject" content snippet pointing to the AP stream
-                        // For a proper flatten we'd inline the content; this adds it as an XObject.
-                        let _ = ap_stream; // annotation content noted
-                    }
-                }
-            }
-            // Remove the annotation object
             doc.objects.remove(annot_id);
         }
-
-        // Remove /Annots from the page
-        if let Some(Object::Dictionary(ref mut page_dict)) = doc.objects.get_mut(&page_id) {
-            page_dict.remove(b"Annots");
-            // Remove interactive form fields trigger
-            page_dict.remove(b"AA");
+        if let Some(Object::Dictionary(ref mut pd)) = doc.objects.get_mut(&page_id) {
+            pd.remove(b"Annots");
+            pd.remove(b"AA");
         }
     }
 
-    // Remove AcroForm from catalog (interactive forms)
-    let catalog_id = {
-        if let Ok(Object::Reference(id)) = doc.trailer.get(b"Root") { *id }
-        else { return Err(PdfError::Parse("No catalog".into())); }
-    };
-    if let Some(Object::Dictionary(ref mut catalog)) = doc.objects.get_mut(&catalog_id) {
-        catalog.remove(b"AcroForm");
-        catalog.remove(b"Perms");
+    // Remove AcroForm from Catalog.
+    if let Ok(Object::Reference(cat_id)) = doc.trailer.get(b"Root").map(|o| o.clone()) {
+        if let Some(Object::Dictionary(ref mut cat)) = doc.objects.get_mut(&cat_id) {
+            cat.remove(b"AcroForm");
+            cat.remove(b"Perms");
+        }
     }
 
+    crate::pdf_tools::update_max_id(&mut doc);
     let mut buf = Vec::new();
     doc.save_to(&mut buf)?;
     Ok(buf)
 }
 
-// ─── Redact ────────────────────────────────────────────────────────────────
+// ─── Redact regions ─────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct RedactRegion {
@@ -386,15 +409,10 @@ pub struct RedactRegion {
     pub height: f64,
 }
 
-/// Inject solid black rectangles over specified regions (visual redaction).
-/// For full text removal, PDF editing would require content stream re-parsing
-/// which requires a custom operator parser — visual redaction is the PDF-spec approach.
 pub fn redact_regions(input: &[u8], regions: &[RedactRegion]) -> Result<Vec<u8>, PdfError> {
-    let mut doc = Document::load_mem(input)?;
-    doc.decompress();
-    let page_ids = doc.get_pages();
-
-    // Group regions by page
+    let mut doc      = Document::load_mem(input)?;
+    crate::pdf_tools::safe_decompress(&mut doc);
+    let page_ids     = doc.get_pages();
     let mut by_page: BTreeMap<usize, Vec<&RedactRegion>> = BTreeMap::new();
     for r in regions { by_page.entry(r.page).or_default().push(r); }
 
@@ -403,24 +421,22 @@ pub fn redact_regions(input: &[u8], regions: &[RedactRegion]) -> Result<Vec<u8>,
             Some(&id) => id,
             None      => continue,
         };
-
-        let mut ops = String::from("q\n0 0 0 rg\n"); // black fill
+        let mut ops = String::from("q\n0 0 0 rg\n");
         for r in &rects {
             ops.push_str(&format!("{} {} {} {} re f\n", r.x, r.y, r.width, r.height));
         }
         ops.push_str("Q\n");
-
         let stream = Stream::new(
             Dictionary::from_iter(vec![("Length", Object::Integer(ops.len() as i64))]),
             ops.into_bytes(),
         );
         let overlay_id = doc.add_object(Object::Stream(stream));
 
-        if let Some(Object::Dictionary(ref mut page_dict)) = doc.objects.get_mut(&page_id) {
-            match page_dict.get_mut(b"Contents") {
+        if let Some(Object::Dictionary(ref mut pd)) = doc.objects.get_mut(&page_id) {
+            match pd.get_mut(b"Contents") {
                 Ok(Object::Reference(old_id)) => {
                     let old = *old_id;
-                    page_dict.set("Contents", Object::Array(vec![
+                    pd.set("Contents", Object::Array(vec![
                         Object::Reference(overlay_id),
                         Object::Reference(old),
                     ]));
@@ -428,85 +444,144 @@ pub fn redact_regions(input: &[u8], regions: &[RedactRegion]) -> Result<Vec<u8>,
                 Ok(Object::Array(ref mut arr)) => {
                     arr.insert(0, Object::Reference(overlay_id));
                 }
-                _ => { page_dict.set("Contents", Object::Reference(overlay_id)); }
+                _ => { pd.set("Contents", Object::Reference(overlay_id)); }
             }
         }
     }
 
+    crate::pdf_tools::update_max_id(&mut doc);
     let mut buf = Vec::new();
     doc.save_to(&mut buf)?;
     Ok(buf)
 }
 
-// ─── Object remapping ──────────────────────────────────────────────────────
+// ─── Dependency walker ───────────────────────────────────────────────────────
+//
+// Starting from a page object ID, walk every indirect reference reachable
+// through that object graph and collect all IDs.  This ensures we copy
+// fonts, images, colour profiles, XObjects, etc. along with the page.
+
+fn collect_transitive_deps(doc: &Document, root_id: ObjectId) -> BTreeSet<ObjectId> {
+    let mut visited: BTreeSet<ObjectId> = BTreeSet::new();
+    let mut queue: Vec<ObjectId>        = vec![root_id];
+    while let Some(id) = queue.pop() {
+        if !visited.insert(id) { continue; }
+        if let Some(obj) = doc.objects.get(&id) {
+            push_refs_from_object(obj, &mut queue);
+        }
+    }
+    visited
+}
+
+fn push_refs_from_object(obj: &Object, queue: &mut Vec<ObjectId>) {
+    match obj {
+        Object::Reference(id)    => queue.push(*id),
+        Object::Array(arr)       => arr.iter().for_each(|o| push_refs_from_object(o, queue)),
+        Object::Dictionary(dict) => dict.iter().for_each(|(_, v)| push_refs_from_object(v, queue)),
+        Object::Stream(s)        => s.dict.iter().for_each(|(_, v)| push_refs_from_object(v, queue)),
+        _                        => {}
+    }
+}
+
+// ─── Object remapping ───────────────────────────────────────────────────────
+//
+// Deep-clone an Object, rewriting every Reference through `id_map`.
+// References not in the map are kept as-is (they point to objects that
+// will already exist in the destination, e.g. page-tree nodes).
 
 pub fn remap_obj(obj: &Object, id_map: &BTreeMap<ObjectId, ObjectId>) -> Object {
     match obj {
         Object::Reference(id) => {
-            if let Some(&new_id) = id_map.get(id) { Object::Reference(new_id) }
-            else { Object::Reference(*id) }
+            Object::Reference(*id_map.get(id).unwrap_or(id))
         }
         Object::Array(arr) => {
             Object::Array(arr.iter().map(|o| remap_obj(o, id_map)).collect())
         }
         Object::Dictionary(dict) => {
-            let new_dict = Dictionary::from_iter(
+            Object::Dictionary(Dictionary::from_iter(
                 dict.iter().map(|(k, v)| (k.as_slice(), remap_obj(v, id_map)))
-            );
-            Object::Dictionary(new_dict)
+            ))
         }
-        Object::Stream(stream) => {
+        Object::Stream(s) => {
             let new_dict = Dictionary::from_iter(
-                stream.dict.iter().map(|(k, v)| (k.as_slice(), remap_obj(v, id_map)))
+                s.dict.iter().map(|(k, v)| (k.as_slice(), remap_obj(v, id_map)))
             );
-            Object::Stream(lopdf::Stream {
-                dict:                new_dict,
-                content:             stream.content.clone(),
-                allows_compression:  stream.allows_compression,
-                start_position:      None,
+            Object::Stream(Stream {
+                dict:               new_dict,
+                content:            s.content.clone(),
+                allows_compression: s.allows_compression,
+                start_position:     None,
             })
         }
         other => other.clone(),
     }
 }
 
-// ─── Inherited Attributes Helper ───────────────────────────────────────────
+// ─── Inherited attribute materialisation ────────────────────────────────────
+//
+// PDF pages can inherit MediaBox, CropBox, Resources, and Rotate from
+// ancestor Pages nodes in the page tree.  When we extract a page and
+// give it a new parent, those inherited values would be lost.
+//
+// This function:
+//   1. Walks the source document's page-tree ancestry for the given page.
+//   2. Finds any inherited attributes not already present on the page.
+//   3. Copies them inline onto the *destination* page dict.
+//
+// Important: if the inherited value was a Reference in the source doc, we
+// look it up and inline its resolved value, because the referent object
+// may not have been copied into the destination.
+//
+// Call this AFTER copying all objects into the result document (so that
+// objects pointed to by References from Resources are present) but BEFORE
+// setting the new Parent.
 
-fn resolve_inherited(doc: &Document, page_id: ObjectId, key: &[u8]) -> Option<Object> {
-    let mut current_id = page_id;
-    while let Some(Object::Dictionary(dict)) = doc.objects.get(&current_id) {
-        if let Ok(obj) = dict.get(key) {
-            return Some(obj.clone());
+fn materialise_for_page(
+    src:         &Document,
+    src_page_id: ObjectId,
+    dst:         &mut Document,
+    dst_page_id: ObjectId,
+    id_map:      &BTreeMap<ObjectId, ObjectId>,
+) {
+    // Walk the source page-tree ancestors collecting inherited values.
+    let keys: &[&[u8]] = &[b"MediaBox", b"CropBox", b"Resources", b"Rotate"];
+    let mut inherited: BTreeMap<Vec<u8>, Object> = BTreeMap::new();
+
+    let mut cur = src_page_id;
+    let mut visited_ancestors: BTreeSet<ObjectId> = BTreeSet::new();
+    loop {
+        if !visited_ancestors.insert(cur) { break; } // cycle guard
+        let dict = match src.objects.get(&cur) {
+            Some(Object::Dictionary(d)) => d,
+            _                          => break,
+        };
+        for &key in keys {
+            if inherited.contains_key(key) { continue; } // already found closer
+            if let Ok(val) = dict.get(key) {
+                // Resolve one level of indirection inside the source doc.
+                let resolved = match val {
+                    Object::Reference(ref_id) => {
+                        src.objects.get(ref_id).cloned().unwrap_or_else(|| val.clone())
+                    }
+                    other => other.clone(),
+                };
+                inherited.insert(key.to_vec(), resolved);
+            }
         }
-        if let Ok(Object::Reference(parent_id)) = dict.get(b"Parent") {
-            current_id = *parent_id;
-        } else {
-            break;
+        match dict.get(b"Parent") {
+            Ok(Object::Reference(parent_id)) => cur = *parent_id,
+            _                                => break,
         }
     }
-    None
-}
 
-fn materialize_inherited_attributes(doc: &mut Document) {
-    let page_ids: Vec<ObjectId> = doc.get_pages().values().copied().collect();
-    for page_id in page_ids {
-        let media_box = resolve_inherited(doc, page_id, b"MediaBox");
-        let crop_box = resolve_inherited(doc, page_id, b"CropBox");
-        let resources = resolve_inherited(doc, page_id, b"Resources");
-        let rotate = resolve_inherited(doc, page_id, b"Rotate");
-
-        if let Some(Object::Dictionary(ref mut dict)) = doc.objects.get_mut(&page_id) {
-            if !dict.has(b"MediaBox") {
-                if let Some(mb) = media_box { dict.set("MediaBox", mb); }
-            }
-            if !dict.has(b"Resources") {
-                if let Some(res) = resources { dict.set("Resources", res); }
-            }
-            if !dict.has(b"CropBox") {
-                if let Some(cb) = crop_box { dict.set("CropBox", cb); }
-            }
-            if !dict.has(b"Rotate") {
-                if let Some(rot) = rotate { dict.set("Rotate", rot); }
+    // Now apply any inherited keys that are absent from the dst page.
+    if let Some(Object::Dictionary(ref mut dst_dict)) = dst.objects.get_mut(&dst_page_id) {
+        for (key, val) in inherited {
+            if !dst_dict.has(&key) {
+                // If the inherited value is a dict/stream that references objects,
+                // those refs were remapped into dst — remap them here too.
+                let remapped = remap_obj(&val, id_map);
+                dst_dict.set(key, remapped);
             }
         }
     }

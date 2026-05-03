@@ -55,28 +55,49 @@ fn escape_pdf_string(s: &str) -> String {
         .collect()
 }
 
-/// Find the media box (page size) from a page dictionary
+/// Find the MediaBox for a page, walking ancestors if needed (PDF inheritance model).
 fn get_media_box(doc: &Document, page_id: lopdf::ObjectId) -> (f64, f64) {
-    // defaults to A4 if not found
     let default = (595.0f64, 842.0f64);
-    let obj = match doc.objects.get(&page_id) {
-        Some(o) => o,
-        None => return default,
-    };
-    if let Object::Dictionary(ref dict) = obj {
-        if let Ok(Object::Array(ref arr)) = dict.get(b"MediaBox") {
-            if arr.len() == 4 {
-                let w = arr[2].as_float().unwrap_or(595.0) as f64;
-                let h = arr[3].as_float().unwrap_or(842.0) as f64;
-                return (w, h);
+    let mut cur = page_id;
+    let mut visited = std::collections::BTreeSet::new();
+    loop {
+        if !visited.insert(cur) { break; }
+        let dict = match doc.objects.get(&cur) {
+            Some(Object::Dictionary(d)) => d,
+            _ => break,
+        };
+        // Try MediaBox directly on this dict
+        if let Ok(mb) = dict.get(b"MediaBox") {
+            let arr = match mb {
+                Object::Array(a) => Some(a.clone()),
+                Object::Reference(id) => {
+                    if let Some(Object::Array(a)) = doc.objects.get(id) { Some(a.clone()) } else { None }
+                }
+                _ => None,
+            };
+            if let Some(arr) = arr {
+                if arr.len() == 4 {
+                    let w = arr[2].as_float().unwrap_or(595.0) as f64;
+                    let h = arr[3].as_float().unwrap_or(842.0) as f64;
+                    return (w, h);
+                }
             }
+        }
+        // Walk up to parent
+        match dict.get(b"Parent") {
+            Ok(Object::Reference(pid)) => cur = *pid,
+            _ => break,
         }
     }
     default
 }
 
-/// Inject a helper font resource (/F1 = Helvetica) into a page's Resources dict.
-/// Returns true if successful.
+/// Inject a /F1 = Helvetica font resource into a page so our text stamps work.
+///
+/// Handles three cases:
+///   1. Resources is an inline Dictionary on the page dict.
+///   2. Resources is an indirect Reference — follow it and mutate the referent.
+///   3. Resources is absent — create a new inline Resources dict.
 fn ensure_font_resource(doc: &mut Document, page_id: lopdf::ObjectId) {
     let font_dict = Dictionary::from_iter(vec![
         ("Type",     Object::Name(b"Font".to_vec())),
@@ -86,12 +107,37 @@ fn ensure_font_resource(doc: &mut Document, page_id: lopdf::ObjectId) {
     ]);
     let font_id = doc.add_object(Object::Dictionary(font_dict));
 
+    // Find out whether Resources is inline or a reference.
+    let resources_ref: Option<lopdf::ObjectId> = {
+        if let Some(Object::Dictionary(ref pd)) = doc.objects.get(&page_id) {
+            match pd.get(b"Resources") {
+                Ok(Object::Reference(rid)) => Some(*rid),
+                _ => None,
+            }
+        } else { None }
+    };
+
+    if let Some(res_id) = resources_ref {
+        // Case 2: Resources is an indirect object — mutate the referent.
+        if let Some(Object::Dictionary(ref mut res)) = doc.objects.get_mut(&res_id) {
+            match res.get_mut(b"Font") {
+                Ok(Object::Dictionary(ref mut fonts)) => {
+                    fonts.set("F1", Object::Reference(font_id));
+                }
+                _ => {
+                    let mut fonts = Dictionary::new();
+                    fonts.set("F1", Object::Reference(font_id));
+                    res.set("Font", Object::Dictionary(fonts));
+                }
+            }
+        }
+        return;
+    }
+
+    // Cases 1 & 3: Resources is inline (or absent) on the page dict.
     if let Some(Object::Dictionary(ref mut page_dict)) = doc.objects.get_mut(&page_id) {
-        // Ensure Resources dict exists
-        let res_obj = page_dict.get_mut(b"Resources");
-        match res_obj {
+        match page_dict.get_mut(b"Resources") {
             Ok(Object::Dictionary(ref mut res)) => {
-                // Ensure Fonts dict
                 match res.get_mut(b"Font") {
                     Ok(Object::Dictionary(ref mut fonts)) => {
                         fonts.set("F1", Object::Reference(font_id));
@@ -104,6 +150,7 @@ fn ensure_font_resource(doc: &mut Document, page_id: lopdf::ObjectId) {
                 }
             }
             _ => {
+                // Resources is absent — create a minimal inline Resources dict.
                 let mut fonts = Dictionary::new();
                 fonts.set("F1", Object::Reference(font_id));
                 let mut resources = Dictionary::new();
@@ -221,7 +268,7 @@ pub fn add_page_numbers(
     font_size: f64,
 ) -> Result<Vec<u8>, PdfError> {
     let mut doc = Document::load_mem(input)?;
-    doc.decompress();
+    crate::pdf_tools::safe_decompress(&mut doc);
     let page_ids: Vec<lopdf::ObjectId> = doc.get_pages().values().copied().collect();
     let total = page_ids.len();
 
@@ -265,7 +312,7 @@ pub struct HeaderFooterConfig {
 /// Add headers and footers to all pages
 pub fn add_header_footer(input: &[u8], config: &HeaderFooterConfig) -> Result<Vec<u8>, PdfError> {
     let mut doc = Document::load_mem(input)?;
-    doc.decompress();
+    crate::pdf_tools::safe_decompress(&mut doc);
     let page_ids: Vec<(u32, lopdf::ObjectId)> = doc.get_pages().into_iter().collect();
     let total = page_ids.len();
     let font_size = if config.font_size > 0.0 { config.font_size } else { 10.0 };
@@ -325,7 +372,7 @@ pub struct BatesConfig {
 /// Add Bates numbers to every page
 pub fn add_bates_numbers(input: &[u8], config: &BatesConfig) -> Result<Vec<u8>, PdfError> {
     let mut doc = Document::load_mem(input)?;
-    doc.decompress();
+    crate::pdf_tools::safe_decompress(&mut doc);
     let page_ids: Vec<lopdf::ObjectId> = doc.get_pages().values().copied().collect();
 
     for (i, &page_id) in page_ids.iter().enumerate() {
@@ -360,7 +407,7 @@ pub struct WatermarkConfig {
 /// For diagonal "center" placement the text is rotated 45°.
 pub fn add_watermark(input: &[u8], config: &WatermarkConfig) -> Result<Vec<u8>, PdfError> {
     let mut doc = Document::load_mem(input)?;
-    doc.decompress();
+    crate::pdf_tools::safe_decompress(&mut doc);
     let page_ids: Vec<lopdf::ObjectId> = doc.get_pages().values().copied().collect();
     let grey = 1.0 - config.opacity.clamp(0.0, 1.0) * 0.7; // lighter = more transparent
 
