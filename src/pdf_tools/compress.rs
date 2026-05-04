@@ -82,7 +82,7 @@ fn is_plain_flate(stream: &lopdf::Stream) -> bool {
 pub fn compress_pdf(input: &[u8], level: CompressLevel) -> Result<(Vec<u8>, usize), PdfError> {
     let original_size = input.len();
     let mut doc       = Document::load_mem(input)?;
-    crate::pdf_tools::safe_decompress(&mut doc);
+    // No global decompress — we handle each stream selectively below.
 
     let flate_level = level.flate2_level();
     let ids: Vec<lopdf::ObjectId> = doc.objects.keys().copied().collect();
@@ -127,6 +127,7 @@ pub fn compress_pdf(input: &[u8], level: CompressLevel) -> Result<(Vec<u8>, usiz
         }
     }
 
+    crate::pdf_tools::update_max_id(&mut doc);
     let mut buf = Vec::new();
     doc.save_to(&mut buf)?;
     let new_size  = buf.len();
@@ -159,7 +160,7 @@ pub fn downscale_images(input: &[u8], max_dpi: u32) -> Result<Vec<u8>, PdfError>
     };
 
     let mut doc = Document::load_mem(input)?;
-    crate::pdf_tools::safe_decompress(&mut doc);
+    // No global decompress — we only re-encode JPEG image streams.
     let ids: Vec<lopdf::ObjectId> = doc.objects.keys().copied().collect();
 
     for id in ids {
@@ -194,6 +195,7 @@ pub fn downscale_images(input: &[u8], max_dpi: u32) -> Result<Vec<u8>, PdfError>
         }
     }
 
+    crate::pdf_tools::update_max_id(&mut doc);
     let mut buf = Vec::new();
     doc.save_to(&mut buf)?;
     Ok(buf)

@@ -89,6 +89,7 @@ pub fn images_to_pdf(images: &[&[u8]]) -> Result<Vec<u8>, PdfError> {
     doc.objects.insert(catalog_id, Object::Dictionary(catalog_dict));
     doc.trailer.set("Root", Object::Reference(catalog_id));
 
+    crate::pdf_tools::update_max_id(&mut doc);
     let mut buf = Vec::new();
     doc.save_to(&mut buf)?;
     Ok(buf)

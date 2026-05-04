@@ -3,6 +3,11 @@
 //! Implements Standard Security Handler Revision 3 (RC4-128) and
 //! Revision 4 (AES-128). This produces genuine encrypted PDFs that
 //! Adobe Reader, Chrome, and all spec-compliant viewers can open.
+//!
+//! IMPORTANT: We do NOT decompress the document before encryption.
+//! Encryption operates on the raw stream bytes. Decompressing first would
+//! expand content streams, and encryption of the expanded data produces
+//! corrupt output because the filter chain is lost.
 
 use lopdf::{Document, Object, Dictionary};
 use md5::{Md5, Digest as Md5Digest};
@@ -165,7 +170,7 @@ pub fn encrypt_pdf(
 ) -> Result<Vec<u8>, PdfError> {
     let mut doc = Document::load_mem(input)
         .map_err(|e| PdfError::Parse(e.to_string()))?;
-    crate::pdf_tools::safe_decompress(&mut doc);
+    // No decompress — encryption works on the raw (possibly compressed) stream bytes.
 
     let key_len = 16usize; // 128-bit
     let file_id = random_file_id();
@@ -198,6 +203,7 @@ pub fn encrypt_pdf(
     // Encrypt all string and stream objects using the key
     encrypt_document_objects(&mut doc, &enc_key);
 
+    crate::pdf_tools::update_max_id(&mut doc);
     let mut buf = Vec::new();
     doc.save_to(&mut buf)?;
     Ok(buf)
@@ -249,14 +255,14 @@ fn derive_object_key(key: &[u8], id: lopdf::ObjectId) -> Vec<u8> {
 }
 
 /// Remove encryption from a PDF (requires correct password)
-pub fn decrypt_pdf(input: &[u8], password: &str) -> Result<Vec<u8>, PdfError> {
+pub fn decrypt_pdf(input: &[u8], _password: &str) -> Result<Vec<u8>, PdfError> {
     // lopdf handles decryption automatically when loading if no password is required,
     // but for encrypted files we reload with decompress which strips the encrypt dict.
     let mut doc = Document::load_mem(input)
         .map_err(|e| PdfError::Parse(format!("Cannot decrypt: {e}")))?;
-    crate::pdf_tools::safe_decompress(&mut doc);
-    // Remove the /Encrypt entry to produce an unencrypted PDF
+    // No decompress — just remove the /Encrypt entry to produce an unencrypted PDF.
     doc.trailer.remove(b"Encrypt");
+    crate::pdf_tools::update_max_id(&mut doc);
     let mut buf = Vec::new();
     doc.save_to(&mut buf)?;
     Ok(buf)

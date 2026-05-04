@@ -2,21 +2,21 @@
 //!
 //! Design principles (to prevent the "blank pages" bug):
 //!
-//! 1. **Never call `doc.decompress()` unless you actually need to READ stream content.**
-//!    Decompressing a PDF expands ALL streams including binary image data (JPEG, JBIG2, etc.).
-//!    Re-saving then corrupts those images. Page-reorganisation operations (merge, split,
-//!    rotate, delete, extract) do not touch stream content, so they must NOT decompress.
+//! 1. **Never decompress streams you don't need to read.**
+//!    Page-reorganisation operations (merge, split, rotate, delete, extract)
+//!    do not touch stream content, so they must NOT decompress.
 //!
 //! 2. **Use a globally-unique, monotonically-increasing ID allocator** when copying objects
-//!    between documents.  The simple `offset = existing_len + 100` approach causes ID
-//!    collisions when two source PDFs have similarly-numbered objects.
+//!    between documents.
 //!
 //! 3. **Materialise inherited page attributes BEFORE re-parenting** — otherwise a page
 //!    that relied on its parent Pages node for Resources/MediaBox loses those after the
 //!    node is replaced.
 //!
 //! 4. **Deep-clone every indirect object a page transitively references** — fonts, images,
-//!    colour spaces, XObjects, etc.  A shallow copy leaves dangling references.
+//!    colour spaces, XObjects, etc.
+//!
+//! 5. **Disable allows_compression on copied streams** to prevent double-compression.
 
 use lopdf::{Document, Object, ObjectId, Dictionary, Stream};
 use std::collections::{BTreeMap, BTreeSet};
@@ -43,7 +43,7 @@ impl IdAlloc {
 /// Merge multiple PDFs into a single document in the given order.
 ///
 /// Implementation notes:
-/// * We do NOT call `decompress()` — stream bytes are copied as-is.
+/// * We do NOT decompress — stream bytes are copied as-is.
 /// * Each source PDF gets its own ID namespace via a per-document id_map.
 /// * Inherited page attributes (MediaBox, Resources, …) are materialised
 ///   directly onto each page dict before the page is re-parented.
@@ -52,16 +52,12 @@ pub fn merge_pdfs(inputs: &[&[u8]]) -> Result<Vec<u8>, PdfError> {
     let catalog_id   = result.new_object_id();
     let pages_id     = result.new_object_id();
 
-    // Start allocating IDs beyond the two we already reserved.
-    // result.new_object_id() increments an internal counter — use that.
-    // We build our own alloc that starts high enough.
     let mut alloc = IdAlloc::new(1000);
     let mut all_page_ids: Vec<ObjectId> = vec![];
 
     for pdf_bytes in inputs {
-        let mut doc = Document::load_mem(pdf_bytes)?;
-        crate::pdf_tools::safe_decompress(&mut doc);
-        // Note: no decompress() — we copy compressed streams verbatim.
+        let doc = Document::load_mem(pdf_bytes)?;
+        // No decompress — we copy compressed streams verbatim.
 
         // Build a per-document ID remap: old_id → new_id (from our alloc).
         let mut id_map: BTreeMap<ObjectId, ObjectId> = BTreeMap::new();
@@ -110,7 +106,6 @@ pub fn merge_pdfs(inputs: &[&[u8]]) -> Result<Vec<u8>, PdfError> {
     ]);
     result.objects.insert(catalog_id, Object::Dictionary(catalog));
     result.trailer.set("Root", Object::Reference(catalog_id));
-    result.trailer.set("Size", Object::Integer(result.objects.len() as i64 + 1));
 
     crate::pdf_tools::update_max_id(&mut result);
     let mut buf = Vec::new();
@@ -147,8 +142,7 @@ impl PageRange {
 // ─── Split ──────────────────────────────────────────────────────────────────
 
 pub fn split_pdf(input: &[u8], ranges: &[PageRange]) -> Result<Vec<Vec<u8>>, PdfError> {
-    let mut src = Document::load_mem(input)?;
-    crate::pdf_tools::safe_decompress(&mut src);
+    let src = Document::load_mem(input)?;
     let total = src.get_pages().len();
     let mut results = vec![];
     for range in ranges {
@@ -163,14 +157,12 @@ pub fn split_pdf(input: &[u8], ranges: &[PageRange]) -> Result<Vec<Vec<u8>>, Pdf
 // ─── Extract / Delete pages ─────────────────────────────────────────────────
 
 pub fn extract_pages(input: &[u8], pages: &[usize]) -> Result<Vec<u8>, PdfError> {
-    let mut src = Document::load_mem(input)?;
-    crate::pdf_tools::safe_decompress(&mut src);
+    let src = Document::load_mem(input)?;
     extract_pages_from_doc(&src, pages)
 }
 
 pub fn delete_pages(input: &[u8], pages_to_delete: &[usize]) -> Result<Vec<u8>, PdfError> {
-    let mut src = Document::load_mem(input)?;
-    crate::pdf_tools::safe_decompress(&mut src);
+    let src = Document::load_mem(input)?;
     let total = src.get_pages().len();
     let del_set: BTreeSet<usize> = pages_to_delete.iter().copied().collect();
     let keep: Vec<usize> = (1..=total).filter(|p| !del_set.contains(p)).collect();
@@ -185,7 +177,7 @@ pub fn delete_pages(input: &[u8], pages_to_delete: &[usize]) -> Result<Vec<u8>, 
 ///   3. Materialise any inherited attributes (MediaBox, Resources, …) directly.
 ///   4. Wire the page into a new Pages/Catalog structure.
 ///
-/// We do NOT call decompress() — streams are copied byte-for-byte.
+/// No decompress — streams are copied byte-for-byte.
 fn extract_pages_from_doc(src: &Document, page_nums: &[usize]) -> Result<Vec<u8>, PdfError> {
     let mut result   = Document::with_version("1.7");
     let catalog_id   = result.new_object_id();
@@ -253,7 +245,6 @@ fn extract_pages_from_doc(src: &Document, page_nums: &[usize]) -> Result<Vec<u8>
     ]);
     result.objects.insert(catalog_id, Object::Dictionary(catalog));
     result.trailer.set("Root", Object::Reference(catalog_id));
-    result.trailer.set("Size", Object::Integer(result.objects.len() as i64 + 1));
 
     crate::pdf_tools::update_max_id(&mut result);
     let mut buf = Vec::new();
@@ -268,7 +259,7 @@ fn extract_pages_from_doc(src: &Document, page_nums: &[usize]) -> Result<Vec<u8>
 pub fn rotate_pages(input: &[u8], page_nums: &[usize], degrees: i64) -> Result<Vec<u8>, PdfError> {
     let degrees      = ((degrees % 360) + 360) % 360;
     let mut doc      = Document::load_mem(input)?;
-    crate::pdf_tools::safe_decompress(&mut doc);
+    // No decompress needed — we're only modifying dict entries.
     let page_ids     = doc.get_pages();
 
     let target_ids: Vec<ObjectId> = if page_nums.is_empty() {
@@ -295,7 +286,7 @@ pub fn rotate_pages(input: &[u8], page_nums: &[usize], degrees: i64) -> Result<V
 
 pub fn insert_blank_page(input: &[u8], after_page: usize, width: f64, height: f64) -> Result<Vec<u8>, PdfError> {
     let mut doc = Document::load_mem(input)?;
-    crate::pdf_tools::safe_decompress(&mut doc);
+    // No decompress needed — we're only adding new objects.
 
     let media_box = Object::Array(vec![
         Object::Integer(0), Object::Integer(0),
@@ -361,7 +352,7 @@ fn find_pages_node(doc: &Document) -> Result<ObjectId, PdfError> {
 /// Streams are NOT decompressed; we only remove annotation dicts.
 pub fn flatten_pdf(input: &[u8]) -> Result<Vec<u8>, PdfError> {
     let mut doc = Document::load_mem(input)?;
-    crate::pdf_tools::safe_decompress(&mut doc);
+    // No decompress needed — we're only removing dict entries.
     let page_ids: Vec<ObjectId> = doc.get_pages().values().copied().collect();
 
     for page_id in page_ids {
@@ -411,7 +402,7 @@ pub struct RedactRegion {
 
 pub fn redact_regions(input: &[u8], regions: &[RedactRegion]) -> Result<Vec<u8>, PdfError> {
     let mut doc      = Document::load_mem(input)?;
-    crate::pdf_tools::safe_decompress(&mut doc);
+    // No decompress needed — we're only adding new overlay streams.
     let page_ids     = doc.get_pages();
     let mut by_page: BTreeMap<usize, Vec<&RedactRegion>> = BTreeMap::new();
     for r in regions { by_page.entry(r.page).or_default().push(r); }
@@ -488,6 +479,10 @@ fn push_refs_from_object(obj: &Object, queue: &mut Vec<ObjectId>) {
 // Deep-clone an Object, rewriting every Reference through `id_map`.
 // References not in the map are kept as-is (they point to objects that
 // will already exist in the destination, e.g. page-tree nodes).
+//
+// CRITICAL: For streams, we set `allows_compression = false` to prevent
+// `lopdf::save_to()` from double-compressing streams that are already
+// compressed (e.g. FlateDecode content streams, DCTDecode images).
 
 pub fn remap_obj(obj: &Object, id_map: &BTreeMap<ObjectId, ObjectId>) -> Object {
     match obj {
@@ -509,7 +504,7 @@ pub fn remap_obj(obj: &Object, id_map: &BTreeMap<ObjectId, ObjectId>) -> Object 
             Object::Stream(Stream {
                 dict:               new_dict,
                 content:            s.content.clone(),
-                allows_compression: s.allows_compression,
+                allows_compression: false,  // Prevent double-compression!
                 start_position:     None,
             })
         }

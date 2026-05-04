@@ -2,6 +2,11 @@
 //!
 //! All text is injected as real PDF content stream operators so the stamps
 //! are embedded permanently in the PDF byte stream.
+//!
+//! IMPORTANT: We do NOT call decompress() on the document. Stamping only
+//! adds new overlay content streams and modifies page dicts. Existing
+//! streams are never read or modified, so they must be left in their
+//! original compressed state.
 
 use lopdf::{Document, Object, Dictionary, Stream};
 use super::PdfError;
@@ -268,7 +273,7 @@ pub fn add_page_numbers(
     font_size: f64,
 ) -> Result<Vec<u8>, PdfError> {
     let mut doc = Document::load_mem(input)?;
-    crate::pdf_tools::safe_decompress(&mut doc);
+    // No decompress — we only add new overlay streams.
     let page_ids: Vec<lopdf::ObjectId> = doc.get_pages().values().copied().collect();
     let total = page_ids.len();
 
@@ -289,6 +294,7 @@ pub fn add_page_numbers(
         prepend_content(&mut doc, page_id, content);
     }
 
+    crate::pdf_tools::update_max_id(&mut doc);
     let mut buf = Vec::new();
     doc.save_to(&mut buf)?;
     Ok(buf)
@@ -312,7 +318,7 @@ pub struct HeaderFooterConfig {
 /// Add headers and footers to all pages
 pub fn add_header_footer(input: &[u8], config: &HeaderFooterConfig) -> Result<Vec<u8>, PdfError> {
     let mut doc = Document::load_mem(input)?;
-    crate::pdf_tools::safe_decompress(&mut doc);
+    // No decompress — we only add new overlay streams.
     let page_ids: Vec<(u32, lopdf::ObjectId)> = doc.get_pages().into_iter().collect();
     let total = page_ids.len();
     let font_size = if config.font_size > 0.0 { config.font_size } else { 10.0 };
@@ -353,6 +359,7 @@ pub fn add_header_footer(input: &[u8], config: &HeaderFooterConfig) -> Result<Ve
         }
     }
 
+    crate::pdf_tools::update_max_id(&mut doc);
     let mut buf = Vec::new();
     doc.save_to(&mut buf)?;
     Ok(buf)
@@ -372,7 +379,7 @@ pub struct BatesConfig {
 /// Add Bates numbers to every page
 pub fn add_bates_numbers(input: &[u8], config: &BatesConfig) -> Result<Vec<u8>, PdfError> {
     let mut doc = Document::load_mem(input)?;
-    crate::pdf_tools::safe_decompress(&mut doc);
+    // No decompress — we only add new overlay streams.
     let page_ids: Vec<lopdf::ObjectId> = doc.get_pages().values().copied().collect();
 
     for (i, &page_id) in page_ids.iter().enumerate() {
@@ -389,6 +396,7 @@ pub fn add_bates_numbers(input: &[u8], config: &BatesConfig) -> Result<Vec<u8>, 
         prepend_content(&mut doc, page_id, content);
     }
 
+    crate::pdf_tools::update_max_id(&mut doc);
     let mut buf = Vec::new();
     doc.save_to(&mut buf)?;
     Ok(buf)
@@ -407,7 +415,7 @@ pub struct WatermarkConfig {
 /// For diagonal "center" placement the text is rotated 45°.
 pub fn add_watermark(input: &[u8], config: &WatermarkConfig) -> Result<Vec<u8>, PdfError> {
     let mut doc = Document::load_mem(input)?;
-    crate::pdf_tools::safe_decompress(&mut doc);
+    // No decompress — we only add new overlay streams.
     let page_ids: Vec<lopdf::ObjectId> = doc.get_pages().values().copied().collect();
     let grey = 1.0 - config.opacity.clamp(0.0, 1.0) * 0.7; // lighter = more transparent
 
@@ -429,6 +437,7 @@ pub fn add_watermark(input: &[u8], config: &WatermarkConfig) -> Result<Vec<u8>, 
         prepend_content(&mut doc, page_id, content);
     }
 
+    crate::pdf_tools::update_max_id(&mut doc);
     let mut buf = Vec::new();
     doc.save_to(&mut buf)?;
     Ok(buf)

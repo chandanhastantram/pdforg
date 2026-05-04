@@ -188,6 +188,7 @@ pub fn create_pdf(pages: &[PdfPageContent]) -> Result<Vec<u8>, PdfError> {
     ]));
     doc.trailer.set("Root", Object::Reference(catalog_id));
 
+    crate::pdf_tools::update_max_id(&mut doc);
     let mut buf = Vec::new();
     doc.save_to(&mut buf)?;
     Ok(buf)

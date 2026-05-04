@@ -1,4 +1,7 @@
 //! PDF metadata read/write and document sanitization.
+//!
+//! IMPORTANT: These operations only modify dictionary entries (Info dict,
+//! Catalog entries). They do NOT need to decompress any streams.
 
 use lopdf::{Document, Object, Dictionary};
 use super::PdfError;
@@ -25,8 +28,8 @@ fn obj_to_str(obj: &Object) -> Option<String> {
 
 /// Extract document info metadata from a PDF
 pub fn get_metadata(input: &[u8]) -> Result<PdfMetadata, PdfError> {
-    let mut doc = Document::load_mem(input)?;
-    crate::pdf_tools::safe_decompress(&mut doc);
+    let doc = Document::load_mem(input)?;
+    // No decompress — we're only reading the Info dict from the trailer.
     let mut meta = PdfMetadata::default();
 
     if let Ok(Object::Reference(info_id)) = doc.trailer.get(b"Info") {
@@ -56,7 +59,7 @@ fn str_obj(s: &str) -> Object {
 /// Write document info metadata to a PDF
 pub fn set_metadata(input: &[u8], meta: &PdfMetadata) -> Result<Vec<u8>, PdfError> {
     let mut doc = Document::load_mem(input)?;
-    crate::pdf_tools::safe_decompress(&mut doc);
+    // No decompress — we're only modifying the Info dict.
 
     // Find or create /Info dictionary
     let now = chrono::Local::now().format("D:%Y%m%d%H%M%S").to_string();
@@ -84,6 +87,7 @@ pub fn set_metadata(input: &[u8], meta: &PdfMetadata) -> Result<Vec<u8>, PdfErro
 
     doc.trailer.set("Info", Object::Reference(info_id));
 
+    crate::pdf_tools::update_max_id(&mut doc);
     let mut buf = Vec::new();
     doc.save_to(&mut buf)?;
     Ok(buf)
@@ -114,7 +118,7 @@ impl SanitizeOptions {
 /// Strip hidden data from a PDF
 pub fn sanitize_pdf(input: &[u8], opts: &SanitizeOptions) -> Result<Vec<u8>, PdfError> {
     let mut doc = Document::load_mem(input)?;
-    crate::pdf_tools::safe_decompress(&mut doc);
+    // No decompress — we're only removing dict entries, not reading streams.
 
     if opts.strip_metadata {
         // Remove /Info dictionary
@@ -159,6 +163,7 @@ pub fn sanitize_pdf(input: &[u8], opts: &SanitizeOptions) -> Result<Vec<u8>, Pdf
         }
     }
 
+    crate::pdf_tools::update_max_id(&mut doc);
     let mut buf = Vec::new();
     doc.save_to(&mut buf)?;
     Ok(buf)
