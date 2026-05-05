@@ -1,14 +1,14 @@
-<<<<<<< Updated upstream
+<<<<<< Updated upstream
 #  PDF Office (`pdforg`)
 =======
 # PDF Office
->>>>>>> Stashed changes
+>>>>>> Stashed changes
 
 A lightning-fast, privacy-first, purely local PDF manipulation tool. Built with Rust and React.
 
 ![PDF Office](frontend/public/favicon.svg)
 
-## Features
+# Features
 
 - **Privacy-First Architecture**: 100% of PDF processing happens locally on your machine. No cloud uploads, no external APIs, no tracking.
 - **20+ PDF Tools**: Merge, split, compress, protect, watermark, rotate, delete pages, extract pages, insert pages, add page numbers, add headers/footers, bates numbering, edit metadata, sanitize, flatten, compare, unlock, and more.
